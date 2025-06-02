@@ -1,0 +1,34 @@
+services:
+  # Front-end React application for commandes.lica-europe.org
+  commandes_front:
+    # Pull the pre‑built image from your registry.
+    # TAG determines the colour (blue | green) ; defaults to blue.
+    image: ghcr.io/your-org/commandes:${TAG:-blue}
+    container_name: commandes_front_${TAG:-blue}
+    restart: unless-stopped
+
+    # ────────────────────────────────────────────────────────────────
+    # ▶ Alternative: build locally instead of pulling an image
+    # Comment the "image:" line above and uncomment this block.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    # ────────────────────────────────────────────────────────────────
+
+    # Publish container port 80 on a host port (defaults to 3100).
+    ports:
+      - "${PORT:-3100}:80"
+
+    # Environment variables consumed at runtime by the app.
+    environment:
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+
+    # Basic health‑check: fail container if HTTP root is unreachable.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+# End of file
