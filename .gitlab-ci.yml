@@ -29,7 +29,7 @@ pages:
     - job: build
       artifacts: true
   script: |
-    mkdir public
+    mkdir -p public
     cp -a dist/. public/
   artifacts:
     paths:
