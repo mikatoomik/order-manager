@@ -1,0 +1,37 @@
+# Déploie un SPA Vite sur GitLab Pages
+image: node:20
+
+stages:
+  - build
+  - deploy
+
+cache:
+  paths:
+    - node_modules/
+
+variables:
+  VITE_SUPABASE_URL: $VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY: $VITE_SUPABASE_ANON_KEY
+
+before_script:
+  - corepack enable   # active pnpm/yarn si nécessaire
+
+build:
+  stage: build
+  script:
+    - npm ci
+    - npm run build          # dist/ par défaut
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 hour
+
+pages:
+  stage: deploy
+  script:
+    - mv dist public         # le job Pages attend un dossier public/
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
