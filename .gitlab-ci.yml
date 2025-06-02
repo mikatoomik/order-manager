@@ -1,26 +1,23 @@
-# Déploie un SPA Vite sur GitLab Pages
+# .gitlab-ci.yml – version simplifiée & sûre
 image: node:20
 
-stages:
-  - build
-  - deploy
+stages: [build, deploy]
 
 cache:
   paths:
     - node_modules/
 
 variables:
+  # clés publiques uniquement
   VITE_SUPABASE_URL: $VITE_SUPABASE_URL
   VITE_SUPABASE_ANON_KEY: $VITE_SUPABASE_ANON_KEY
-
-before_script:
-  - corepack enable   # active pnpm/yarn si nécessaire
+  VITE_BASE_PATH: /
 
 build:
   stage: build
   script:
     - npm ci
-    - npm run build          # dist/ par défaut
+    - npm run build
   artifacts:
     paths:
       - dist
@@ -28,8 +25,12 @@ build:
 
 pages:
   stage: deploy
-  script:
-    - mv dist public         # le job Pages attend un dossier public/
+  needs:
+    - job: build
+      artifacts: true
+  script: |
+    mkdir public
+    cp -a dist/. public/
   artifacts:
     paths:
       - public
