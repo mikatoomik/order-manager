@@ -2,22 +2,11 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import type { User } from '@supabase/supabase-js'
 import './App.css'
-
-function getTestUser(): User {
-  return {
-    id: 'test-user-id',
-    aud: 'authenticated',
-    email: 'testuser@lica-europe.org',
-    phone: '',
-    app_metadata: {},
-    user_metadata: {},
-    created_at: new Date().toISOString(),
-    identities: [],
-    last_sign_in_at: new Date().toISOString(),
-    role: 'authenticated',
-    updated_at: new Date().toISOString(),
-  };
-}
+import { getTestUser, getTestProfile, getTestCircles } from './testData.ts'
+import type { UserProfile, UserCircle } from './testData.ts'
+import ProfilPage from './pages/ProfilPage'
+import DemandesPage from './pages/DemandesPage'
+import CataloguePage from './pages/CataloguePage'
 
 function App() {
   const [showLogin, setShowLogin] = useState(true)
@@ -27,13 +16,17 @@ function App() {
   const [page, setPage] = useState<'demandes' | 'catalogue' | 'profil'>('demandes')
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [authMessage, setAuthMessage] = useState<string | null>(null)
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userCircles, setUserCircles] = useState<UserCircle[]>([]);
 
   // Détection de l'utilisateur connecté
   useEffect(() => {
     // Mode test : simule un utilisateur connecté si ?test=1 dans l’URL
     if (window.location.search.includes('test=1')) {
       setUser(getTestUser());
+      setUserProfile(getTestProfile());
+      setUserCircles(getTestCircles());
       setShowLogin(false);
       return;
     }
@@ -58,6 +51,37 @@ function App() {
       })
     }
   }, [page, showLogin])
+
+  // Récupération du profil enrichi et des cercles à l'ouverture de la page profil
+  useEffect(() => {
+    if (page === 'profil' && user && !window.location.search.includes('test=1')) {
+      // Récupérer avatar et surnom
+      supabase.from('user_profiles').select('avatar_url, nickname').eq('user_id', user.id).single().then(({ data, error }) => {
+        if (error) {
+          console.error('Erreur Supabase user_profiles:', error);
+        }
+        setUserProfile(data ?? { avatar_url: null, nickname: null });
+      });
+      // Récupérer les cercles
+      supabase.from('user_circles').select('circles(nom)').eq('user_id', user.id).then(({ data, error }) => {
+        if (error) {
+          console.error('Erreur Supabase user_circles:', error);
+        }
+        if (Array.isArray(data)) {
+          const circles: UserCircle[] = [];
+          for (const row of data) {
+            const c = (row as { circles?: { nom?: string } | null }).circles;
+            if (c && typeof c === 'object' && typeof c.nom === 'string') {
+              circles.push({ nom: c.nom });
+            }
+          }
+          setUserCircles(circles);
+        } else {
+          setUserCircles([]);
+        }
+      });
+    }
+  }, [page, user]);
 
   // Gestion Google Auth
   const handleGoogleLogin = async () => {
@@ -101,53 +125,27 @@ function App() {
             <a href="#" onClick={e => { e.preventDefault(); setPage('profil'); }} role="link">Profil</a>
           </nav>
           {page === 'demandes' && (
-            <div>
-              <h1>Mes demandes</h1>
-              {articles.length === 0 ? (
-                <p>Aucune demande</p>
-              ) : (
-                <ul>
-                  {articles.map(a => <li key={a}>{a}</li>)}
-                </ul>
-              )}
-              <button onClick={() => setShowModal(true)}>Ajouter un article</button>
-              {showModal && (
-                <div role="dialog" style={{ background: '#fff', border: '1px solid #ccc', padding: 16, marginTop: 16 }}>
-                  <form onSubmit={e => {
-                    e.preventDefault();
-                    const select = (e.target as HTMLFormElement).elements.namedItem('article-select') as HTMLSelectElement;
-                    setArticles([...articles, select.value]);
-                    setShowModal(false);
-                  }}>
-                    <label htmlFor="article-select">Article</label>
-                    <select id="article-select" name="article-select" aria-label="Article" defaultValue={catalogue[0] || ''}>
-                      {catalogue.map(a => (
-                        <option key={a} value={a}>{a}</option>
-                      ))}
-                    </select>
-                    <button type="submit">Valider</button>
-                  </form>
-                </div>
-              )}
-            </div>
+            <DemandesPage
+              articles={articles}
+              setArticles={setArticles}
+              showModal={showModal}
+              setShowModal={setShowModal}
+              catalogue={catalogue}
+            />
           )}
           {page === 'catalogue' && (
-            <div>
-              <h1>Catalogue</h1>
-              <ul>
-                {catalogue.map(a => (
-                  <li key={a}>
-                    {a} <button onClick={() => setArticles([...articles, a])}>Ajouter {a}</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <CataloguePage
+              catalogue={catalogue}
+              articles={articles}
+              setArticles={setArticles}
+            />
           )}
           {page === 'profil' && (
-            <div>
-              <h1>Mon profil</h1>
-              <p data-testid="profil-email">Connecté en tant que <b>{user.email}</b></p>
-            </div>
+            <ProfilPage
+              user={user}
+              userProfile={userProfile}
+              userCircles={userCircles}
+            />
           )}
         </div>
         </>

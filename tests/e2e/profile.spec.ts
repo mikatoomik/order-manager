@@ -11,4 +11,21 @@ test.describe('Profil utilisateur', () => {
     await expect(page.getByRole('heading', { name: /mon profil/i })).toBeVisible();
     await expect(page.getByTestId('profil-email')).toBeVisible();
   });
+
+  test('le profil affiche display name, avatar, surnom et cercles', async ({ page }) => {
+    await login(page);
+    await page.getByRole('link', { name: /profil/i }).click();
+    // Display name
+    await expect(page.getByTestId('profil-displayname')).toHaveText(/Nom affiché\s*:\s*Test Utilisateur/i);
+    // Avatar
+    const avatar = page.getByTestId('profil-avatar');
+    await expect(avatar).toBeVisible();
+    await expect(avatar).toHaveAttribute('src', /ui-avatars/);
+    // Surnom
+    await expect(page.getByTestId('profil-nickname')).toHaveText(/Surnom\s*:\s*SuperTest/i);
+    // Cercles
+    const cercles = page.getByTestId('profil-cercles');
+    await expect(cercles).toContainText('Cercle Alpha');
+    await expect(cercles).toContainText('Cercle Beta');
+  });
 });
