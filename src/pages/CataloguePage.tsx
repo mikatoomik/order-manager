@@ -24,12 +24,20 @@ import {
   MenuItem,
   Alert
 } from '@mui/material';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import LinkIcon from '@mui/icons-material/Link';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import type { CatalogueItem, CartItem } from '../types';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
@@ -37,12 +45,13 @@ import { getOrCreatePeriodRecord, type Period } from '../utils/periodUtils';
 
 interface CataloguePageProps {
   catalogue: CatalogueItem[];
+  setCatalogue: (c: CatalogueItem[]) => void;
   articles: CartItem[];
   setArticles: (a: CartItem[]) => void;
   user: User;
 }
 
-export default function CataloguePage({ catalogue, articles, setArticles, user }: CataloguePageProps) {
+export default function CataloguePage({ catalogue, setCatalogue, articles, setArticles, user }: CataloguePageProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentPeriod, setCurrentPeriod] = useState<Period | null>(null);
   const [userCircles, setUserCircles] = useState<{ id: string; nom: string }[]>([]);
@@ -50,6 +59,15 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [articleToEdit, setArticleToEdit] = useState<CatalogueItem | null>(null);
+  const [editData, setEditData] = useState<Partial<CatalogueItem>>({});
+  const [editSuccess, setEditSuccess] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [articleToDelete, setArticleToDelete] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchCurrentPeriod() {
@@ -80,6 +98,14 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
     }
     fetchUserCircles();
   }, [user]);
+
+  const fetchCatalogue = async () => {
+    const { data } = await supabase
+      .from('articles')
+      .select('id, libelle, ref, fournisseur, prix_unitaire, url, active')
+      .eq('active', true);
+    setCatalogue(data || []);
+  };
 
   const handleAddArticle = (article: string) => {
     // Vérifier si l'article existe déjà dans le panier
@@ -124,6 +150,54 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
   const handleRemoveArticle = (article: string) => {
     const updatedArticles = articles.filter(a => a.libelle !== article);
     setArticles(updatedArticles);
+  };
+
+  const handleEditArticle = async (
+    article: CatalogueItem,
+    updatedData: Partial<CatalogueItem>
+  ) => {
+    try {
+      const { data, error } = await supabase.rpc('update_article', {
+        p_article_id: article.id,
+        p_libelle: updatedData.libelle || article.libelle,
+        p_ref: updatedData.ref || article.ref,
+        p_fournisseur: updatedData.fournisseur || article.fournisseur,
+        p_prix_unitaire: updatedData.prix_unitaire || article.prix_unitaire,
+        p_url: updatedData.url || article.url
+      });
+      if (error) throw error;
+      if (data !== article.id) {
+        await fetchCatalogue();
+      } else {
+        const updatedCatalogue = catalogue.map(item =>
+          item.id === article.id ? { ...item, ...updatedData } : item
+        );
+        setCatalogue(updatedCatalogue);
+      }
+      setEditSuccess(true);
+      setTimeout(() => setEditSuccess(false), 3000);
+    } catch (err) {
+      console.error("Erreur lors de la modification de l'article:", err);
+      setEditError("Une erreur est survenue lors de la modification de l'article");
+      setTimeout(() => setEditError(null), 3000);
+    }
+  };
+
+  const handleDeleteArticle = async (articleId: string) => {
+    try {
+      const { error } = await supabase.rpc('delete_article', {
+        p_article_id: articleId
+      });
+      if (error) throw error;
+      const updatedCatalogue = catalogue.filter(item => item.id !== articleId);
+      setCatalogue(updatedCatalogue);
+      setDeleteSuccess(true);
+      setTimeout(() => setDeleteSuccess(false), 3000);
+    } catch (err) {
+      console.error("Erreur lors de la suppression de l'article:", err);
+      setDeleteError("Une erreur est survenue lors de la suppression de l'article");
+      setTimeout(() => setDeleteError(null), 3000);
+    }
   };
 
   const totalPrice = articles.reduce((sum, a) => {
@@ -245,6 +319,27 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
                     onClick={() => handleAddArticle(item.libelle)}
                   >
                     <AddIcon />
+                  </IconButton>
+                  <IconButton
+                    color="primary"
+                    aria-label={`Éditer ${item.libelle}`}
+                    onClick={() => {
+                      setArticleToEdit(item);
+                      setEditData(item);
+                      setEditModalOpen(true);
+                    }}
+                  >
+                    <EditIcon />
+                  </IconButton>
+                  <IconButton
+                    color="error"
+                    aria-label={`Supprimer ${item.libelle}`}
+                    onClick={() => {
+                      setArticleToDelete(item.id);
+                      setDeleteDialogOpen(true);
+                    }}
+                  >
+                    <DeleteIcon />
                   </IconButton>
                 </TableCell>
               </TableRow>
@@ -383,6 +478,75 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
           )}
         </Box>
       </Drawer>
+
+      <Dialog open={editModalOpen} onClose={() => setEditModalOpen(false)}>
+        <DialogTitle>Modifier l'article</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            label="Libellé"
+            value={editData.libelle || ''}
+            onChange={e => setEditData({ ...editData, libelle: e.target.value })}
+          />
+          <TextField
+            label="Référence"
+            value={editData.ref || ''}
+            onChange={e => setEditData({ ...editData, ref: e.target.value })}
+          />
+          <TextField
+            label="Fournisseur"
+            value={editData.fournisseur || ''}
+            onChange={e => setEditData({ ...editData, fournisseur: e.target.value })}
+          />
+          <TextField
+            label="Prix unitaire"
+            type="number"
+            value={editData.prix_unitaire ?? ''}
+            onChange={e => setEditData({ ...editData, prix_unitaire: Number(e.target.value) })}
+          />
+          <TextField
+            label="URL"
+            value={editData.url || ''}
+            onChange={e => setEditData({ ...editData, url: e.target.value })}
+          />
+          {editSuccess && <Alert severity="success">Article modifié</Alert>}
+          {editError && <Alert severity="error">{editError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditModalOpen(false)}>Annuler</Button>
+          <Button
+            onClick={async () => {
+              if (articleToEdit) {
+                await handleEditArticle(articleToEdit, editData);
+                setEditModalOpen(false);
+              }
+            }}
+          >
+            Enregistrer
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Supprimer l'article ?</DialogTitle>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Annuler</Button>
+          <Button
+            color="error"
+            onClick={async () => {
+              if (articleToDelete) {
+                await handleDeleteArticle(articleToDelete);
+                setDeleteDialogOpen(false);
+              }
+            }}
+          >
+            Supprimer
+          </Button>
+        </DialogActions>
+        <Box sx={{ p: 2 }}>
+          {deleteSuccess && <Alert severity="success">Article supprimé</Alert>}
+          {deleteError && <Alert severity="error">{deleteError}</Alert>}
+        </Box>
+      </Dialog>
     </div>
   )
 }
