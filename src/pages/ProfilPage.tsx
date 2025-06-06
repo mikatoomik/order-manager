@@ -1,13 +1,75 @@
-import type { User } from '@supabase/supabase-js'
-import type { UserProfile, UserCircle } from '../testData'
+import type { User } from '@supabase/supabase-js';
+import type { UserProfile, UserCircle } from '../testData';
+import { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import { Chip } from '@mui/material';
 
 interface ProfilPageProps {
   user: User;
   userProfile: UserProfile | null;
-  userCircles: UserCircle[];
 }
 
-export default function ProfilPage({ user, userProfile, userCircles }: ProfilPageProps) {
+export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
+  const [allCircles, setAllCircles] = useState<UserCircle[]>([]);
+  const [selectedCircles, setSelectedCircles] = useState<UserCircle[]>([]);
+
+  useEffect(() => {
+    const fetchAllCircles = async () => {
+      const { data: allCirclesData, error: allCirclesError } = await supabase
+        .from('circles')
+        .select('nom');
+
+      if (allCirclesError) {
+        console.error('Error fetching all circles:', allCirclesError);
+      } else {
+        setAllCircles(allCirclesData ? allCirclesData.map((c: { nom: string }) => ({ nom: c.nom })) : []);
+      }
+
+      const { data: userCirclesData, error: userCirclesError } = await supabase
+        .from('user_circles')
+        .select('circle_name')
+        .eq('user_id', user.id);
+
+      if (userCirclesError) {
+        console.error('Error fetching user circles:', userCirclesError);
+      } else {
+        setSelectedCircles(userCirclesData ? userCirclesData.map((c: { circle_name: string }) => ({ nom: c.circle_name })) : []);
+      }
+    };
+
+    fetchAllCircles();
+  }, [user.id]);
+
+  const handleCircleClick = async (circle: UserCircle) => {
+    const isSelected = selectedCircles.some((c) => c.nom === circle.nom);
+
+    if (isSelected) {
+      // Remove circle from user_circles
+      const { error } = await supabase
+        .from('user_circles')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('circle_name', circle.nom);
+
+      if (error) {
+        console.error('Error removing user circle:', error);
+      } else {
+        setSelectedCircles(selectedCircles.filter((c) => c.nom !== circle.nom));
+      }
+    } else {
+      // Add circle to user_circles
+      const { error } = await supabase
+        .from('user_circles')
+        .insert([{ user_id: user.id, circle_name: circle.nom }]);
+
+      if (error) {
+        console.error('Error adding user circle:', error);
+      } else {
+        setSelectedCircles([...selectedCircles, circle]);
+      }
+    }
+  };
+
   return (
     <div>
       <h1>Mon profil</h1>
@@ -25,11 +87,18 @@ export default function ProfilPage({ user, userProfile, userCircles }: ProfilPag
       {/* Cercles d'appartenance */}
       <div>
         <p>Cercles d’appartenance :</p>
-        <ul data-testid="profil-cercles">
-          {userCircles.length === 0 && <li>Aucun cercle</li>}
-          {userCircles.map((c, i) => <li key={i}>{c.nom}</li>)}
-        </ul>
+        <div data-testid="profil-cercles">
+          {allCircles.map((circle) => (
+            <Chip
+              key={circle.nom}
+              label={circle.nom}
+              onClick={() => handleCircleClick(circle)}
+              color={selectedCircles.some((c) => c.nom === circle.nom) ? 'primary' : 'default'}
+              style={{ margin: '4px' }}
+            />
+          ))}
+        </div>
       </div>
     </div>
-  )
+  );
 }
