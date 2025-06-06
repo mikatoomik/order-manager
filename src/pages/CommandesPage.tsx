@@ -16,38 +16,8 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { supabase } from '../supabaseClient';
-import type { User } from '@supabase/supabase-js';
-
-interface CommandesPageProps {
-  user: User;
-}
 
 // Interfaces pour les données retournées par Supabase
-interface Circle {
-  id: string;
-  nom: string;
-}
-
-interface Article {
-  id: string;
-  libelle: string;
-  ref: string;
-  fournisseur: string;
-  prix_unitaire: number;
-}
-
-interface RequestLine {
-  id: string;
-  qty: number;
-  article_id: string;
-  articles: Article;
-}
-
-interface CircleRequest {
-  id: string;
-  circle_id: string;
-  circles: Circle;
-}
 
 interface Period {
   id: string;
@@ -75,7 +45,7 @@ interface PeriodOrders {
   total: number;
 }
 
-export default function CommandesPage({ user }: CommandesPageProps) {
+export default function CommandesPage() {
   const [periodOrders, setPeriodOrders] = useState<PeriodOrders[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -131,10 +101,9 @@ export default function CommandesPage({ user }: CommandesPageProps) {
         // Pour chaque commande, récupérer les lignes et les articles
         for (const request of requests) {
           const circleId = request.circle_id;
-          // Utiliser une assertion de type pour accéder aux propriétés
-          const circle = request.circles as any;
+          // Gestion du typage : request.circles peut être un tableau ou un objet
+          const circle = Array.isArray(request.circles) ? request.circles[0] : request.circles;
           const circleName = circle.nom;
-          
           if (!ordersByCircle[circleId]) {
             ordersByCircle[circleId] = {
               circle_id: circleId,
@@ -142,7 +111,6 @@ export default function CommandesPage({ user }: CommandesPageProps) {
               articles: []
             };
           }
-          
           // Récupérer les lignes de commande pour cette commande
           const { data: requestLines, error: linesError } = await supabase
             .from('request_lines')
@@ -153,16 +121,12 @@ export default function CommandesPage({ user }: CommandesPageProps) {
               articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)
             `)
             .eq('request_id', request.id);
-          
           if (linesError) throw linesError;
-          
           if (requestLines && requestLines.length > 0) {
-            // Pour chaque ligne, ajouter ou mettre à jour l'article dans la commande du cercle
             requestLines.forEach(line => {
-              // Utiliser une assertion de type pour accéder aux propriétés
-              const article = line.articles as any;
+              // Gestion du typage : line.articles peut être un tableau ou un objet
+              const article = Array.isArray(line.articles) ? line.articles[0] : line.articles;
               const existingArticleIndex = ordersByCircle[circleId].articles.findIndex(a => a.article_id === line.article_id);
-              
               if (existingArticleIndex !== -1) {
                 // Si l'article existe déjà, augmenter la quantité
                 ordersByCircle[circleId].articles[existingArticleIndex].total_qty += line.qty;

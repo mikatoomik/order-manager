@@ -269,7 +269,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
         return;
       } else {
         // Update classique
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('articles')
           .update({
             libelle: updatedData.libelle || article.libelle,

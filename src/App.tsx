@@ -158,7 +158,7 @@ function App() {
               />
             )}
             {page === 'commandes' && (
-              <CommandesPage user={user} />
+              <CommandesPage />
             )}
           </>
         )}
