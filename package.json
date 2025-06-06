@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:cov": "playwright test --coverage --output=test-results/coverage"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",

@@ -241,20 +241,33 @@ export default function CommandesPage({ user }: CommandesPageProps) {
                         <TableCell>Total</TableCell>
                       </TableRow>
                     </TableHead>
-                    <TableBody>
-                      {order.articles.map(article => (
-                        <TableRow key={article.article_id}>
-                          <TableCell>{article.ref}</TableCell>
-                          <TableCell>{article.libelle}</TableCell>
-                          <TableCell>{article.fournisseur}</TableCell>
-                          <TableCell>{article.prix_unitaire} €</TableCell>
-                          <TableCell>{article.total_qty}</TableCell>
-                          <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                  <TableBody>
+                    {order.articles.map(article => (
+                      <TableRow key={article.article_id}>
+                        <TableCell>{article.ref}</TableCell>
+                        <TableCell>{article.libelle}</TableCell>
+                        <TableCell>{article.fournisseur}</TableCell>
+                        <TableCell>{article.prix_unitaire} €</TableCell>
+                        <TableCell>{article.total_qty}</TableCell>
+                        <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Box sx={{ textAlign: 'right', mt: 1 }} data-testid="circle-total">
+                <Typography variant="subtitle2">
+                  Total commande :
+                  {' '}
+                  {order.articles
+                    .reduce(
+                      (sum, art) => sum + art.prix_unitaire * art.total_qty,
+                      0
+                    )
+                    .toFixed(2)}{' '}
+                  €
+                </Typography>
+              </Box>
               </AccordionDetails>
             </Accordion>
           ))}
