@@ -1,42 +1,16 @@
-import type { User } from '@supabase/supabase-js'
-
-export interface UserProfile {
-  avatar_url: string | null;
-  nickname: string | null;
-}
-export interface UserCircle {
-  nom: string;
-}
-
-export function getTestUser(): User {
+export function getTestUser() {
   return {
     id: 'test-user-id',
+    email: 'test@lica.org',
     aud: 'authenticated',
-    email: 'testuser@lica-europe.org',
-    phone: '',
-    app_metadata: {},
-    user_metadata: {
-      full_name: 'Test Utilisateur',
-      first_name: 'Test',
-      last_name: 'Utilisateur',
-    },
-    created_at: new Date().toISOString(),
-    identities: [],
-    last_sign_in_at: new Date().toISOString(),
     role: 'authenticated',
-    updated_at: new Date().toISOString(),
+    // Ajoutez d'autres champs si besoin
   };
 }
 
-export function getTestProfile(): UserProfile {
+export function getTestProfile() {
   return {
-    avatar_url: 'https://ui-avatars.com/api/?name=Test+Utilisateur',
-    nickname: 'SuperTest',
+    avatar_url: null,
+    nickname: 'Testeur',
   };
-}
-export function getTestCircles(): UserCircle[] {
-  return [
-    { nom: 'Cercle Alpha' },
-    { nom: 'Cercle Beta' },
-  ];
 }
