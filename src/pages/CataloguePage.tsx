@@ -29,12 +29,14 @@ import {
   DialogActions,
   TextField
 } from '@mui/material';
+
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import LinkIcon from '@mui/icons-material/Link';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import type { CatalogueItem, CartItem } from '../types';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
@@ -42,12 +44,13 @@ import { getOrCreatePeriodRecord, type Period } from '../utils/periodUtils';
 
 interface CataloguePageProps {
   catalogue: CatalogueItem[];
+  setCatalogue: (c: CatalogueItem[]) => void;
   articles: CartItem[];
   setArticles: (a: CartItem[]) => void;
   user: User;
 }
 
-export default function CataloguePage({ catalogue, articles, setArticles, user }: CataloguePageProps) {
+export default function CataloguePage({ catalogue, setCatalogue, articles, setArticles, user }: CataloguePageProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentPeriod, setCurrentPeriod] = useState<Period | null>(null);
   const [userCircles, setUserCircles] = useState<{ id: string; nom: string }[]>([]);
@@ -55,6 +58,15 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [articleToEdit, setArticleToEdit] = useState<CatalogueItem | null>(null);
+  const [editData, setEditData] = useState<Partial<CatalogueItem>>({});
+  const [editSuccess, setEditSuccess] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [articleToDelete, setArticleToDelete] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   
   // État pour la modale d'ajout d'article
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -67,6 +79,46 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
   });
   const [addArticleError, setAddArticleError] = useState<string | null>(null);
   const [addArticleSuccess, setAddArticleSuccess] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [deleteInfo, setDeleteInfo] = useState<string | null>(null);
+
+  // Pagination, tri, recherche, filtre
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [sortBy, setSortBy] = useState<'libelle' | 'ref' | 'fournisseur' | 'prix_unitaire'>('libelle');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [search, setSearch] = useState('');
+  const [filterFournisseur, setFilterFournisseur] = useState('');
+
+  // Fournisseurs uniques pour le filtre
+  const fournisseurs = Array.from(new Set(catalogue.map(a => a.fournisseur).filter(Boolean)));
+
+  // Fonction de tri
+  const sortCatalogue = (a: CatalogueItem, b: CatalogueItem) => {
+    let v1 = a[sortBy];
+    let v2 = b[sortBy];
+    if (typeof v1 === 'string' && typeof v2 === 'string') {
+      v1 = v1.toLowerCase();
+      v2 = v2.toLowerCase();
+    }
+    if (v1 < v2) return sortOrder === 'asc' ? -1 : 1;
+    if (v1 > v2) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  };
+
+  // Filtrage/recherche
+  const filteredCatalogue = catalogue.filter(item => {
+    const searchText = search.toLowerCase();
+    const matchSearch =
+      item.libelle.toLowerCase().includes(searchText) ||
+      item.ref.toLowerCase().includes(searchText) ||
+      item.fournisseur.toLowerCase().includes(searchText);
+    const matchFournisseur = filterFournisseur ? item.fournisseur === filterFournisseur : true;
+    return matchSearch && matchFournisseur;
+  });
+
+  // Pagination
+  const paginatedCatalogue = filteredCatalogue.sort(sortCatalogue).slice(page * rowsPerPage, (page + 1) * rowsPerPage);
 
   useEffect(() => {
     async function fetchCurrentPeriod() {
@@ -97,6 +149,35 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
     }
     fetchUserCircles();
   }, [user]);
+
+  // Nouvelle version de fetchCatalogue qui prend un paramètre pour charger avec ou sans inactifs
+  const fetchCatalogue = async (withInactive = false) => {
+    const query = supabase
+      .from('articles')
+      .select('id, libelle, ref, fournisseur, prix_unitaire, url, active');
+    if (!withInactive) {
+      query.eq('active', true);
+    }
+    const { data } = await query;
+    setCatalogue(data || []);
+  };
+
+  // Charger uniquement les actifs au montage
+  useEffect(() => {
+    fetchCatalogue(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Gérer le toggle pour afficher/masquer les inactifs
+  const handleToggleInactive = async () => {
+    if (!showInactive) {
+      await fetchCatalogue(true);
+      setShowInactive(true);
+    } else {
+      await fetchCatalogue(false);
+      setShowInactive(false);
+    }
+  };
 
   const handleAddArticle = (article: string) => {
     // Vérifier si l'article existe déjà dans le panier
@@ -141,6 +222,110 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
   const handleRemoveArticle = (article: string) => {
     const updatedArticles = articles.filter(a => a.libelle !== article);
     setArticles(updatedArticles);
+  };
+
+  const handleEditArticle = async (
+    article: CatalogueItem,
+    updatedData: Partial<CatalogueItem>
+  ) => {
+    try {
+      // Vérification côté serveur : l'article est-il référencé dans des commandes passées ?
+      const { data: isReferenced, error: refError } = await supabase.rpc('is_article_in_past_orders', {
+        article_id: article.id
+      });
+      if (refError) throw refError;
+      if (isReferenced) {
+        // L'article est référencé : on le passe inactif et on duplique
+        const { error: inactivateError } = await supabase
+          .from('articles')
+          .update({ active: false })
+          .eq('id', article.id);
+        if (inactivateError) throw inactivateError;
+        // Création du nouvel article (copie avec modifs, active: true)
+        const { data: newArticle, error: insertError } = await supabase
+          .from('articles')
+          .insert([
+            {
+              libelle: updatedData.libelle || article.libelle,
+              ref: updatedData.ref || article.ref,
+              fournisseur: updatedData.fournisseur || article.fournisseur,
+              prix_unitaire: updatedData.prix_unitaire || article.prix_unitaire,
+              url: updatedData.url || article.url,
+              active: true
+            }
+          ])
+          .select()
+          .single();
+        if (insertError) throw insertError;
+        setEditSuccess(true);
+        setEditError(null);
+        setCatalogue(
+          catalogue
+            .map(item => item.id === article.id ? { ...item, active: false } : item)
+            .concat(newArticle)
+        );
+        setTimeout(() => setEditSuccess(false), 3000);
+        setDeleteInfo("L'article a été utilisé dans une commande : il a été dupliqué et l'original est passé inactif.");
+        return;
+      } else {
+        // Update classique
+        const { data, error } = await supabase
+          .from('articles')
+          .update({
+            libelle: updatedData.libelle || article.libelle,
+            ref: updatedData.ref || article.ref,
+            fournisseur: updatedData.fournisseur || article.fournisseur,
+            prix_unitaire: updatedData.prix_unitaire || article.prix_unitaire,
+            url: updatedData.url || article.url
+          })
+          .eq('id', article.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setCatalogue(
+          catalogue.map(item =>
+            item.id === article.id ? { ...item, ...updatedData } : item
+          )
+        );
+        setEditSuccess(true);
+        setEditError(null);
+        setTimeout(() => setEditSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error("Erreur lors de la modification de l'article:", err);
+      setEditError("Une erreur est survenue lors de la modification de l'article");
+      setTimeout(() => setEditError(null), 3000);
+    }
+  };
+
+  const handleDeleteArticle = async (articleId: string) => {
+    try {
+      const { error } = await supabase.rpc('delete_article', {
+        p_article_id: articleId
+      });
+      if (error) {
+        if (error.code === '23503') {
+          const { error: updateError } = await supabase
+            .from('articles')
+            .update({ active: false })
+            .eq('id', articleId);
+          if (updateError) throw updateError;
+          setDeleteInfo("L'article a été utilisé dans une commande, il a été désactivé (inactif).");
+          setCatalogue(catalogue.map(item => item.id === articleId ? { ...item, active: false } : item));
+        } else {
+          throw error;
+        }
+      } else {
+        const updatedCatalogue = catalogue.filter(item => item.id !== articleId);
+        setCatalogue(updatedCatalogue);
+        setDeleteSuccess(true);
+        setTimeout(() => setDeleteSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error("Erreur lors de la suppression de l'article:", err);
+      setDeleteError("Une erreur est survenue lors de la suppression de l'article");
+      setTimeout(() => setDeleteError(null), 3000);
+    }
   };
 
   const totalPrice = articles.reduce((sum, a) => {
@@ -257,7 +442,7 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
     try {
       // Insérer le nouvel article dans la base de données
       const { error } = await supabase
-        .from('catalogue')
+        .from('articles')
         .insert([newArticle])
         .select();
         
@@ -294,6 +479,14 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
           >
             Ajouter un article
           </Button>
+          <Button
+            variant={showInactive ? "outlined" : "text"}
+            color="secondary"
+            onClick={handleToggleInactive}
+            sx={{ mr: 2 }}
+          >
+            {showInactive ? "Masquer les inactifs" : "Afficher les inactifs"}
+          </Button>
           <IconButton
             color="primary"
             onClick={() => setDrawerOpen(true)}
@@ -306,51 +499,183 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
         </Box>
       </Box>
       
-      <TableContainer component={Paper}>
-        <Table aria-label="tableau du catalogue">
+      {/* Barres de recherche et de filtre */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+        <TextField
+          label="Recherche"
+          value={search}
+          onChange={e => {
+            setSearch(e.target.value);
+            setPage(0);
+          }}
+          size="small"
+          sx={{ minWidth: 200 }}
+        />
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Fournisseur</InputLabel>
+          <Select
+            value={filterFournisseur}
+            label="Fournisseur"
+            onChange={e => {
+              setFilterFournisseur(e.target.value);
+              setPage(0);
+            }}
+          >
+            <MenuItem value="">Tous</MenuItem>
+            {fournisseurs.map(f => (
+              <MenuItem key={f} value={f}>{f}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel>Lignes/page</InputLabel>
+          <Select
+            value={rowsPerPage}
+            label="Lignes/page"
+            onChange={e => {
+              setRowsPerPage(Number(e.target.value));
+              setPage(0);
+            }}
+          >
+            {[20, 50, 100].map(n => (
+              <MenuItem key={n} value={n}>{n}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+      <TableContainer component={Paper} sx={{ overflow: 'visible' }}>
+        <Table aria-label="tableau du catalogue" sx={{ overflow: 'visible' }}>
           <TableHead>
             <TableRow>
-              <TableCell>Libellé</TableCell>
-              <TableCell>Référence</TableCell>
-              <TableCell>Fournisseur</TableCell>
-              <TableCell>Prix unitaire</TableCell>
+              <TableCell onClick={() => {
+                setSortBy('libelle');
+                setSortOrder(sortBy === 'libelle' && sortOrder === 'asc' ? 'desc' : 'asc');
+              }} style={{ cursor: 'pointer' }}>
+                Libellé {sortBy === 'libelle' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+              </TableCell>
+              <TableCell onClick={() => {
+                setSortBy('ref');
+                setSortOrder(sortBy === 'ref' && sortOrder === 'asc' ? 'desc' : 'asc');
+              }} style={{ cursor: 'pointer' }}>
+                Référence {sortBy === 'ref' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+              </TableCell>
+              <TableCell onClick={() => {
+                setSortBy('fournisseur');
+                setSortOrder(sortBy === 'fournisseur' && sortOrder === 'asc' ? 'desc' : 'asc');
+              }} style={{ cursor: 'pointer' }}>
+                Fournisseur {sortBy === 'fournisseur' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+              </TableCell>
+              <TableCell onClick={() => {
+                setSortBy('prix_unitaire');
+                setSortOrder(sortBy === 'prix_unitaire' && sortOrder === 'asc' ? 'desc' : 'asc');
+              }} style={{ cursor: 'pointer' }}>
+                Prix unitaire {sortBy === 'prix_unitaire' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+              </TableCell>
               <TableCell>URL</TableCell>
               <TableCell>Action</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {catalogue.map((item) => (
-              <TableRow key={item.libelle}>
-                <TableCell>{item.libelle}</TableCell>
-                <TableCell>{item.ref}</TableCell>
-                <TableCell>{item.fournisseur}</TableCell>
-                <TableCell>{item.prix_unitaire} €</TableCell>
-                <TableCell>
-                  {item.url && (
-                    <Link href={item.url} target="_blank" rel="noopener noreferrer">
-                      <LinkIcon />
-                    </Link>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <IconButton
-                    color="primary"
-                    aria-label={`Ajouter ${item.libelle}`}
-                    onClick={() => handleAddArticle(item.libelle)}
-                  >
-                    <AddIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
+            {paginatedCatalogue
+              .map((item) => (
+                <TableRow key={item.libelle} sx={{ ...(item.active === false ? { opacity: 0.5, backgroundColor: '#f5f5f5' } : {}), overflow: 'visible' }}>
+                  <TableCell>{item.libelle}</TableCell>
+                  <TableCell>{item.ref}</TableCell>
+                  <TableCell>{item.fournisseur}</TableCell>
+                  <TableCell>{item.prix_unitaire} €</TableCell>
+                  <TableCell>
+                    {item.url && (
+                      <Link href={item.url} target="_blank" rel="noopener noreferrer">
+                        <LinkIcon />
+                      </Link>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ position: 'relative', minWidth: 90, overflow: 'visible' }}>
+                    {/* Bouton + dans un cercle bleu, à cheval sur le bord droit */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        right: -22,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        zIndex: 10,
+                        pointerEvents: 'auto',
+                      }}
+                    >
+                      <IconButton
+                        aria-label={`Ajouter ${item.libelle}`}
+                        onClick={() => handleAddArticle(item.libelle)}
+                        disabled={item.active === false}
+                        sx={{
+                          backgroundColor: 'primary.main',
+                          color: 'white',
+                          boxShadow: 2,
+                          width: 40,
+                          height: 40,
+                          border: '2px solid white',
+                          '&:hover': {
+                            backgroundColor: 'primary.dark',
+                          },
+                        }}
+                        size="large"
+                      >
+                        <AddIcon fontSize="medium" />
+                      </IconButton>
+                    </Box>
+                    {/* Boutons edit/delete réduits, alignés à droite */}
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                      <IconButton
+                        color="primary"
+                        aria-label={`Éditer ${item.libelle}`}
+                        onClick={() => {
+                          setArticleToEdit(item);
+                          setEditData(item);
+                          setEditModalOpen(true);
+                        }}
+                        disabled={item.active === false}
+                        size="small"
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        color="error"
+                        aria-label={`Supprimer ${item.libelle}`}
+                        onClick={() => {
+                          setArticleToDelete(item.id);
+                          setDeleteDialogOpen(true);
+                        }}
+                        disabled={item.active === false}
+                        size="small"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </TableContainer>
-      {catalogue.length === 0 && (
-        <Typography variant="body1" sx={{ mt: 2 }}>
-          Aucun article dans le catalogue
+      {/* Pagination */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mt: 1, gap: 2 }}>
+        <Typography variant="body2">
+          {filteredCatalogue.length === 0
+            ? 'Aucun article'
+            : `Page ${page + 1} sur ${Math.ceil(filteredCatalogue.length / rowsPerPage)}`}
         </Typography>
-      )}
+        <Button
+          onClick={() => setPage(page - 1)}
+          disabled={page === 0}
+        >
+          Précédent
+        </Button>
+        <Button
+          onClick={() => setPage(page + 1)}
+          disabled={(page + 1) * rowsPerPage >= filteredCatalogue.length}
+        >
+          Suivant
+        </Button>
+      </Box>
 
       {/* Drawer pour afficher les articles ajoutés */}
       <Drawer
@@ -477,6 +802,75 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
           )}
         </Box>
       </Drawer>
+
+      <Dialog open={editModalOpen} onClose={() => setEditModalOpen(false)}>
+        <DialogTitle>Modifier l'article</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            label="Libellé"
+            value={editData.libelle || ''}
+            onChange={e => setEditData({ ...editData, libelle: e.target.value })}
+          />
+          <TextField
+            label="Référence"
+            value={editData.ref || ''}
+            onChange={e => setEditData({ ...editData, ref: e.target.value })}
+          />
+          <TextField
+            label="Fournisseur"
+            value={editData.fournisseur || ''}
+            onChange={e => setEditData({ ...editData, fournisseur: e.target.value })}
+          />
+          <TextField
+            label="Prix unitaire"
+            type="number"
+            value={editData.prix_unitaire ?? ''}
+            onChange={e => setEditData({ ...editData, prix_unitaire: Number(e.target.value) })}
+          />
+          <TextField
+            label="URL"
+            value={editData.url || ''}
+            onChange={e => setEditData({ ...editData, url: e.target.value })}
+          />
+          {editSuccess && <Alert severity="success">Article modifié</Alert>}
+          {editError && <Alert severity="error">{editError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditModalOpen(false)}>Annuler</Button>
+          <Button
+            onClick={async () => {
+              if (articleToEdit) {
+                await handleEditArticle(articleToEdit, editData);
+                setEditModalOpen(false);
+              }
+            }}
+          >
+            Enregistrer
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Supprimer l'article ?</DialogTitle>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Annuler</Button>
+          <Button
+            color="error"
+            onClick={async () => {
+              if (articleToDelete) {
+                await handleDeleteArticle(articleToDelete);
+                setDeleteDialogOpen(false);
+              }
+            }}
+          >
+            Supprimer
+          </Button>
+        </DialogActions>
+        <Box sx={{ p: 2 }}>
+          {deleteSuccess && <Alert severity="success">Article supprimé</Alert>}
+          {deleteError && <Alert severity="error">{deleteError}</Alert>}
+        </Box>
+      </Dialog>
       
       {/* Modale d'ajout d'article */}
       <Dialog open={addModalOpen} onClose={handleAddModalClose} maxWidth="sm" fullWidth>
@@ -552,6 +946,13 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Affichage du message d'info suppression/désactivation */}
+      {deleteInfo && (
+        <Alert severity="info" sx={{ mt: 2 }} onClose={() => setDeleteInfo(null)}>
+          {deleteInfo}
+        </Alert>
+      )}
     </div>
   )
 }
