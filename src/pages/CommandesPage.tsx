@@ -265,6 +265,19 @@ export default function CommandesPage({ user }: CommandesPageProps) {
                         </TableBody>
                       </Table>
                     </TableContainer>
+                    <Box sx={{ textAlign: 'right', mt: 1 }} data-testid="circle-total">
+                <Typography variant="subtitle2">
+                  Total commande :
+                  {' '}
+                  {order.articles
+                    .reduce(
+                      (sum, art) => sum + art.prix_unitaire * art.total_qty,
+                      0
+                    )
+                    .toFixed(2)}{' '}
+                  €
+                </Typography>
+              </Box>
                   </AccordionDetails>
                 </Accordion>
               ))}
