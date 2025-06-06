@@ -6,6 +6,7 @@ export interface CatalogueItem {
   fournisseur: string;
   prix_unitaire: number;
   url: string;
+  active?: boolean;
 }
 
 // Interface pour les articles avec quantité dans le panier
