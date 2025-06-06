@@ -22,7 +22,12 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Alert
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -50,6 +55,18 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  
+  // État pour la modale d'ajout d'article
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [newArticle, setNewArticle] = useState<Omit<CatalogueItem, 'id'>>({
+    libelle: '',
+    ref: '',
+    fournisseur: '',
+    prix_unitaire: 0,
+    url: ''
+  });
+  const [addArticleError, setAddArticleError] = useState<string | null>(null);
+  const [addArticleSuccess, setAddArticleSuccess] = useState(false);
 
   useEffect(() => {
     async function fetchCurrentPeriod() {
@@ -196,20 +213,97 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
     const article = catalogue.find(a => a.libelle === libelle);
     return article ? article.id : '';
   };
+  
+  const handleAddModalOpen = () => {
+    setAddModalOpen(true);
+    setAddArticleError(null);
+    setAddArticleSuccess(false);
+    setNewArticle({
+      libelle: '',
+      ref: '',
+      fournisseur: '',
+      prix_unitaire: 0,
+      url: ''
+    });
+  };
+  
+  const handleAddModalClose = () => {
+    setAddModalOpen(false);
+  };
+  
+  const handleNewArticleChange = (field: keyof Omit<CatalogueItem, 'id'>) => (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = field === 'prix_unitaire'
+      ? parseFloat(event.target.value) || 0
+      : event.target.value;
+    
+    setNewArticle({
+      ...newArticle,
+      [field]: value
+    });
+  };
+  
+  const handleSaveNewArticle = async () => {
+    // Validation basique
+    if (!newArticle.libelle || !newArticle.ref || !newArticle.fournisseur || newArticle.prix_unitaire <= 0) {
+      setAddArticleError('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    setAddArticleError(null);
+    
+    try {
+      // Insérer le nouvel article dans la base de données
+      const { error } = await supabase
+        .from('catalogue')
+        .insert([newArticle])
+        .select();
+        
+      if (error) throw error;
+      
+      // Note: Nous ne pouvons pas directement modifier le catalogue ici car il est passé en props
+      // L'article sera visible après un rechargement de la page ou une nouvelle requête
+      
+      setAddArticleSuccess(true);
+      setTimeout(() => {
+        handleAddModalClose();
+        // Recharger la page pour afficher le nouvel article
+        window.location.reload();
+      }, 1500);
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout de l\'article:', error);
+      setAddArticleError('Une erreur est survenue lors de l\'ajout de l\'article');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <h1>Catalogue</h1>
-        <IconButton
-          color="primary"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Voir les articles ajoutés"
-        >
-          <Badge badgeContent={articles.length} color="secondary">
-            <ShoppingCartIcon />
-          </Badge>
-        </IconButton>
+        <Box>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={handleAddModalOpen}
+            sx={{ mr: 2 }}
+          >
+            Ajouter un article
+          </Button>
+          <IconButton
+            color="primary"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Voir les articles ajoutés"
+          >
+            <Badge badgeContent={articles.length} color="secondary">
+              <ShoppingCartIcon />
+            </Badge>
+          </IconButton>
+        </Box>
       </Box>
       
       <TableContainer component={Paper}>
@@ -383,6 +477,81 @@ export default function CataloguePage({ catalogue, articles, setArticles, user }
           )}
         </Box>
       </Drawer>
+      
+      {/* Modale d'ajout d'article */}
+      <Dialog open={addModalOpen} onClose={handleAddModalClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Ajouter un nouvel article</DialogTitle>
+        <DialogContent>
+          <Box component="form" sx={{ mt: 2 }}>
+            <TextField
+              label="Libellé"
+              fullWidth
+              margin="normal"
+              value={newArticle.libelle}
+              onChange={handleNewArticleChange('libelle')}
+              required
+            />
+            <TextField
+              label="Référence"
+              fullWidth
+              margin="normal"
+              value={newArticle.ref}
+              onChange={handleNewArticleChange('ref')}
+              required
+            />
+            <TextField
+              label="Fournisseur"
+              fullWidth
+              margin="normal"
+              value={newArticle.fournisseur}
+              onChange={handleNewArticleChange('fournisseur')}
+              required
+            />
+            <TextField
+              label="Prix unitaire (€)"
+              fullWidth
+              margin="normal"
+              type="number"
+              inputProps={{ min: 0, step: 0.01 }}
+              value={newArticle.prix_unitaire}
+              onChange={handleNewArticleChange('prix_unitaire')}
+              required
+            />
+            <TextField
+              label="URL (optionnel)"
+              fullWidth
+              margin="normal"
+              value={newArticle.url}
+              onChange={handleNewArticleChange('url')}
+            />
+            
+            {addArticleError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {addArticleError}
+              </Alert>
+            )}
+            
+            {addArticleSuccess && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                Article ajouté avec succès !
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleAddModalClose} color="inherit">
+            Annuler
+          </Button>
+          <Button
+            onClick={handleSaveNewArticle}
+            color="primary"
+            variant="contained"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }
