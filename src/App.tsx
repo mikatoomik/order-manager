@@ -50,9 +50,13 @@ function App() {
   // Récupération des articles depuis Supabase
   useEffect(() => {
     if (page === 'catalogue' && showLogin === false) {
-      supabase.from('articles').select('id, libelle, ref, fournisseur, prix_unitaire, url').then(({ data }) => {
-        setCatalogue(data || [])
-      })
+      supabase
+        .from('articles')
+        .select('id, libelle, ref, fournisseur, prix_unitaire, url, active')
+        .eq('active', true)
+        .then(({ data }) => {
+          setCatalogue(data || [])
+        })
     }
   }, [page, showLogin])
 
@@ -126,6 +130,7 @@ function App() {
             {page === 'catalogue' && (
               <CataloguePage
                 catalogue={catalogue}
+                setCatalogue={setCatalogue}
                 articles={articles}
                 setArticles={setArticles}
                 user={user}
