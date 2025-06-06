@@ -590,40 +590,8 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
                       </Link>
                     )}
                   </TableCell>
-                  <TableCell sx={{ position: 'relative', minWidth: 90, overflow: 'visible' }}>
-                    {/* Bouton + dans un cercle bleu, à cheval sur le bord droit */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        right: -22,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        zIndex: 10,
-                        pointerEvents: 'auto',
-                      }}
-                    >
-                      <IconButton
-                        aria-label={`Ajouter ${item.libelle}`}
-                        onClick={() => handleAddArticle(item.libelle)}
-                        disabled={item.active === false}
-                        sx={{
-                          backgroundColor: 'primary.main',
-                          color: 'white',
-                          boxShadow: 2,
-                          width: 40,
-                          height: 40,
-                          border: '2px solid white',
-                          '&:hover': {
-                            backgroundColor: 'primary.dark',
-                          },
-                        }}
-                        size="large"
-                      >
-                        <AddIcon fontSize="medium" />
-                      </IconButton>
-                    </Box>
-                    {/* Boutons edit/delete réduits, alignés à droite */}
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                  <TableCell sx={{ minWidth: 120, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flex: 1 }}>
                       <IconButton
                         color="primary"
                         aria-label={`Éditer ${item.libelle}`}
@@ -650,6 +618,25 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Box>
+                                        <IconButton
+                      aria-label={`Ajouter ${item.libelle}`}
+                      onClick={() => handleAddArticle(item.libelle)}
+                      disabled={item.active === false}
+                      sx={{
+                        backgroundColor: 'primary.main',
+                        color: 'white',
+                        boxShadow: 2,
+                        width: 40,
+                        height: 40,
+                        border: '2px solid white',
+                        '&:hover': {
+                          backgroundColor: 'primary.dark',
+                        },
+                      }}
+                      size="large"
+                    >
+                      <AddIcon fontSize="medium" />
+                    </IconButton>
                   </TableCell>
                 </TableRow>
               ))}
@@ -866,10 +853,12 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
             Supprimer
           </Button>
         </DialogActions>
-        <Box sx={{ p: 2 }}>
-          {deleteSuccess && <Alert severity="success">Article supprimé</Alert>}
-          {deleteError && <Alert severity="error">{deleteError}</Alert>}
-        </Box>
+        {(deleteSuccess || deleteError) && (
+          <Box sx={{ p: 2 }}>
+            {deleteSuccess && <Alert severity="success">Article supprimé</Alert>}
+            {deleteError && <Alert severity="error">{deleteError}</Alert>}
+          </Box>
+        )}
       </Dialog>
       
       {/* Modale d'ajout d'article */}
@@ -949,7 +938,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
 
       {/* Affichage du message d'info suppression/désactivation */}
       {deleteInfo && (
-        <Alert severity="info" sx={{ mt: 2 }} onClose={() => setDeleteInfo(null)}>
+        <Alert severity="info" sx={{ mt: 2 }} onClose={() => setDeleteInfo("")}>
           {deleteInfo}
         </Alert>
       )}
