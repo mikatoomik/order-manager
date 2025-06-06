@@ -128,6 +128,7 @@ function App() {
                 catalogue={catalogue}
                 articles={articles}
                 setArticles={setArticles}
+                user={user}
               />
             )}
             {page === 'profil' && (

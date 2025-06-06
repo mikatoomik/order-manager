@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Link,
   IconButton,
@@ -17,7 +17,12 @@ import {
   ListItemText,
   Badge,
   ButtonGroup,
-  Button
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Alert
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -26,15 +31,55 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import type { CatalogueItem, CartItem } from '../types';
+import type { User } from '@supabase/supabase-js';
+import { supabase } from '../supabaseClient';
+import { getOrCreatePeriodRecord, type Period } from '../utils/periodUtils';
 
 interface CataloguePageProps {
   catalogue: CatalogueItem[];
   articles: CartItem[];
   setArticles: (a: CartItem[]) => void;
+  user: User;
 }
 
-export default function CataloguePage({ catalogue, articles, setArticles }: CataloguePageProps) {
+export default function CataloguePage({ catalogue, articles, setArticles, user }: CataloguePageProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [currentPeriod, setCurrentPeriod] = useState<Period | null>(null);
+  const [userCircles, setUserCircles] = useState<{ id: string; nom: string }[]>([]);
+  const [selectedCircle, setSelectedCircle] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchCurrentPeriod() {
+      const period = await getOrCreatePeriodRecord();
+      setCurrentPeriod(period);
+    }
+    fetchCurrentPeriod();
+  }, []);
+
+  useEffect(() => {
+    async function fetchUserCircles() {
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('user_circles')
+        .select('circles(id, nom)')
+        .eq('user_id', user.id);
+
+      if (!error) {
+        const circles = (data || [])
+          .map((item: { circles: { id: string; nom: string }[] | { id: string; nom: string } }) =>
+            Array.isArray(item.circles) ? item.circles[0] : item.circles
+          )
+          .filter(Boolean);
+        setUserCircles(circles);
+        if (circles.length === 1) setSelectedCircle(circles[0].id);
+      }
+    }
+    fetchUserCircles();
+  }, [user]);
 
   const handleAddArticle = (article: string) => {
     // Vérifier si l'article existe déjà dans le panier
@@ -79,6 +124,77 @@ export default function CataloguePage({ catalogue, articles, setArticles }: Cata
   const handleRemoveArticle = (article: string) => {
     const updatedArticles = articles.filter(a => a.libelle !== article);
     setArticles(updatedArticles);
+  };
+
+  const totalPrice = articles.reduce((sum, a) => {
+    const item = catalogue.find(c => c.libelle === a.libelle);
+    return sum + (item ? item.prix_unitaire * a.quantite : 0);
+  }, 0);
+
+  const handleValidateOrder = async () => {
+    if (!currentPeriod) {
+      setSubmitError('Impossible de déterminer la période en cours');
+      return;
+    }
+    if (!selectedCircle) {
+      setSubmitError('Veuillez sélectionner un cercle');
+      return;
+    }
+    if (articles.length === 0) {
+      setSubmitError('Votre panier est vide');
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const { data: existingRequest } = await supabase
+        .from('circle_requests')
+        .select('id')
+        .eq('circle_id', selectedCircle)
+        .eq('period_id', currentPeriod.id)
+        .eq('created_by', user.id)
+        .single();
+
+      let requestId;
+      if (existingRequest) {
+        requestId = existingRequest.id;
+        await supabase.from('request_lines').delete().eq('request_id', requestId);
+      } else {
+        const { data: newRequest, error: insertError } = await supabase
+          .from('circle_requests')
+          .insert([
+            { circle_id: selectedCircle, period_id: currentPeriod.id, created_by: user.id, status: 'draft' }
+          ])
+          .select()
+          .single();
+        if (insertError) throw insertError;
+        requestId = newRequest.id;
+      }
+
+      const requestLines = articles.map(article => ({
+        request_id: requestId,
+        article_id: getArticleIdByLibelle(article.libelle),
+        qty: article.quantite
+      }));
+
+      const { error: linesError } = await supabase
+        .from('request_lines')
+        .insert(requestLines);
+      if (linesError) throw linesError;
+
+      setSubmitSuccess(true);
+      setArticles([]);
+    } catch (error) {
+      console.error('Erreur lors de la validation de la commande:', error);
+      setSubmitError('Une erreur est survenue lors de la validation de la commande');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const getArticleIdByLibelle = (libelle: string): string => {
+    const article = catalogue.find(a => a.libelle === libelle);
+    return article ? article.id : '';
   };
 
   return (
@@ -164,51 +280,106 @@ export default function CataloguePage({ catalogue, articles, setArticles }: Cata
               <Typography>Aucune demande</Typography>
             </Box>
           ) : (
-            <List>
-              {articles.map((article) => (
-                <ListItem
-                  key={article.libelle}
-                  secondaryAction={
-                    <IconButton
-                      edge="end"
-                      aria-label="delete"
-                      onClick={() => handleRemoveArticle(article.libelle)}
+            <>
+              <List>
+                {articles.map((article) => (
+                  <ListItem
+                    key={article.libelle}
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        aria-label="delete"
+                        onClick={() => handleRemoveArticle(article.libelle)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    }
+                  >
+                    <ListItemText primary={article.libelle} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                      <ButtonGroup size="small">
+                        <Button
+                          onClick={() => handleDecreaseQuantity(article.libelle)}
+                          aria-label="diminuer la quantité"
+                        >
+                          <RemoveIcon fontSize="small" />
+                        </Button>
+                        <Button
+                          disabled
+                          sx={{
+                            minWidth: '40px',
+                            color: 'black',
+                            fontWeight: 'bold',
+                            backgroundColor: '#f0f0f0'
+                          }}
+                        >
+                          {article.quantite}
+                        </Button>
+                        <Button
+                          onClick={() => handleIncreaseQuantity(article.libelle)}
+                          aria-label="augmenter la quantité"
+                        >
+                          <AddIcon fontSize="small" />
+                        </Button>
+                      </ButtonGroup>
+                    </Box>
+                  </ListItem>
+                ))}
+              </List>
+              <Box sx={{ p: 2, borderTop: '1px solid #eee' }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }} data-testid="drawer-total">
+                  Total : {totalPrice.toFixed(2)} €
+                </Typography>
+                {currentPeriod && (
+                  <Typography variant="body2" gutterBottom>
+                    Période : {currentPeriod.nom}
+                  </Typography>
+                )}
+                {userCircles.length > 1 ? (
+                  <FormControl fullWidth margin="normal">
+                    <InputLabel id="drawer-circle-label">Cercle</InputLabel>
+                    <Select
+                      labelId="drawer-circle-label"
+                      value={selectedCircle}
+                      onChange={(e) => setSelectedCircle(e.target.value)}
+                      label="Cercle"
                     >
-                      <DeleteIcon />
-                    </IconButton>
-                  }
+                      {userCircles.map(circle => (
+                        <MenuItem key={circle.id} value={circle.id}>
+                          {circle.nom}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                ) : (
+                  userCircles.length === 1 && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      Cercle : {userCircles[0].nom}
+                    </Typography>
+                  )
+                )}
+                {submitSuccess && (
+                  <Alert severity="success" sx={{ mt: 1 }}>
+                    Votre commande a été validée avec succès !
+                  </Alert>
+                )}
+                {submitError && (
+                  <Alert severity="error" sx={{ mt: 1 }}>
+                    {submitError}
+                  </Alert>
+                )}
+                <Button
+                  variant="contained"
+                  color="primary"
+                  fullWidth
+                  sx={{ mt: 2 }}
+                  onClick={handleValidateOrder}
+                  disabled={isSubmitting || articles.length === 0 || (userCircles.length > 1 && !selectedCircle)}
                 >
-                  <ListItemText primary={article.libelle} />
-                  <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                    <ButtonGroup size="small">
-                      <Button
-                        onClick={() => handleDecreaseQuantity(article.libelle)}
-                        aria-label="diminuer la quantité"
-                      >
-                        <RemoveIcon fontSize="small" />
-                      </Button>
-                      <Button
-                        disabled
-                        sx={{
-                          minWidth: '40px',
-                          color: 'black',
-                          fontWeight: 'bold',
-                          backgroundColor: '#f0f0f0'
-                        }}
-                      >
-                        {article.quantite}
-                      </Button>
-                      <Button
-                        onClick={() => handleIncreaseQuantity(article.libelle)}
-                        aria-label="augmenter la quantité"
-                      >
-                        <AddIcon fontSize="small" />
-                      </Button>
-                    </ButtonGroup>
-                  </Box>
-                </ListItem>
-              ))}
-            </List>
+                  {isSubmitting ? 'Validation en cours...' : 'Valider ma commande'}
+                </Button>
+              </Box>
+            </>
           )}
         </Box>
       </Drawer>
