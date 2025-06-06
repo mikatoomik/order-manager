@@ -159,7 +159,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
       query.eq('active', true);
     }
     const { data } = await query;
-    setCatalogue(data || []);
+    setCatalogue(data || []); // Remplace toujours, ne concatène jamais
   };
 
   // Charger uniquement les actifs au montage
@@ -500,7 +500,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
       </Box>
       
       {/* Barres de recherche et de filtre */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <TextField
           label="Recherche"
           value={search}
@@ -509,9 +509,9 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
             setPage(0);
           }}
           size="small"
-          sx={{ minWidth: 200 }}
+          sx={{ minWidth: { xs: '100%', sm: 200 } }}
         />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 180 } }}>
           <InputLabel>Fournisseur</InputLabel>
           <Select
             value={filterFournisseur}
@@ -527,7 +527,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
             ))}
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ minWidth: 120 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 120 } }}>
           <InputLabel>Lignes/page</InputLabel>
           <Select
             value={rowsPerPage}
@@ -543,8 +543,8 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
           </Select>
         </FormControl>
       </Box>
-      <TableContainer component={Paper} sx={{ overflow: 'visible' }}>
-        <Table aria-label="tableau du catalogue" sx={{ overflow: 'visible' }}>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+        <Table aria-label="tableau du catalogue" size="small" sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
               <TableCell onClick={() => {
@@ -578,7 +578,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
           <TableBody>
             {paginatedCatalogue
               .map((item) => (
-                <TableRow key={item.libelle} sx={{ ...(item.active === false ? { opacity: 0.5, backgroundColor: '#f5f5f5' } : {}), overflow: 'visible' }}>
+                <TableRow key={item.id} sx={{ ...(item.active === false ? { opacity: 0.5, backgroundColor: '#f5f5f5' } : {}), overflow: 'visible' }}>
                   <TableCell>{item.libelle}</TableCell>
                   <TableCell>{item.ref}</TableCell>
                   <TableCell>{item.fournisseur}</TableCell>
@@ -684,7 +684,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
         onClose={() => setDrawerOpen(false)}
       >
         <Box
-          sx={{ width: 300 }}
+          sx={{ width: { xs: '100vw', sm: 300 } }}
           role="presentation"
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: '1px solid #eee' }}>
