@@ -37,5 +37,6 @@ test.describe('Commandes par cercle', () => {
     await page.getByRole('button', { name: /commandes/i }).click();
     await expect(page.getByText('Stylo')).toBeVisible();
     await expect(page.getByTestId('circle-total')).toHaveText(/11\.00 €/);
+    await expect(page.getByTestId('period-total')).toHaveText(/11\.00 €/);
   });
 });

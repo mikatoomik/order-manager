@@ -2,10 +2,6 @@ import { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Paper,
   Table,
   TableBody,
@@ -73,57 +69,60 @@ interface CircleOrder {
   }[];
 }
 
+interface PeriodOrders {
+  period: Period;
+  circleOrders: CircleOrder[];
+  total: number;
+}
+
 export default function CommandesPage({ user }: CommandesPageProps) {
-  const [periods, setPeriods] = useState<Period[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
-  const [circleOrders, setCircleOrders] = useState<CircleOrder[]>([]);
+  const [periodOrders, setPeriodOrders] = useState<PeriodOrders[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Récupérer toutes les périodes
+
   useEffect(() => {
-    async function fetchPeriods() {
-      const { data, error } = await supabase
+    async function fetchPeriodsAndOrders() {
+      setLoading(true);
+      const { data: periodsData, error } = await supabase
         .from('order_periods')
         .select('*')
         .order('date_limite', { ascending: false });
-      
+
       if (error) {
         console.error('Erreur lors de la récupération des périodes:', error);
+        setLoading(false);
         return;
       }
-      
-      setPeriods(data || []);
-      if (data && data.length > 0) {
-        setSelectedPeriod(data[0].id);
+
+      const results: PeriodOrders[] = [];
+      if (periodsData) {
+        for (const period of periodsData) {
+          const { circleOrders, total } = await fetchOrdersForPeriod(period.id);
+          results.push({ period, circleOrders, total });
+        }
       }
+
+      setPeriodOrders(results);
+      setLoading(false);
     }
-    fetchPeriods();
+
+    fetchPeriodsAndOrders();
   }, []);
-  
-  // Récupérer les commandes pour la période sélectionnée
-  useEffect(() => {
-    async function fetchOrdersForPeriod() {
-      if (!selectedPeriod) return;
-      
-      setLoading(true);
-      
-      try {
-        // Récupérer toutes les commandes pour cette période
-        const { data: requests, error: requestsError } = await supabase
-          .from('circle_requests')
-          .select(`
-            id,
-            circle_id,
-            circles:circle_id (id, nom)
-          `)
-          .eq('period_id', selectedPeriod);
+
+  async function fetchOrdersForPeriod(periodId: string): Promise<{ circleOrders: CircleOrder[]; total: number }> {
+    try {
+      const { data: requests, error: requestsError } = await supabase
+        .from('circle_requests')
+        .select(
+          `id,
+           circle_id,
+           circles:circle_id (id, nom)`
+        )
+        .eq('period_id', periodId);
         
         if (requestsError) throw requestsError;
-        
+
         if (!requests || requests.length === 0) {
-          setCircleOrders([]);
-          setLoading(false);
-          return;
+          return { circleOrders: [], total: 0 };
         }
         
         // Créer un tableau pour stocker les commandes par cercle
@@ -182,16 +181,23 @@ export default function CommandesPage({ user }: CommandesPageProps) {
           }
         }
         
-        setCircleOrders(Object.values(ordersByCircle));
+        const circleOrdersArray = Object.values(ordersByCircle);
+        const periodTotal = circleOrdersArray.reduce(
+          (sum, o) =>
+            sum +
+            o.articles.reduce(
+              (s, a) => s + a.prix_unitaire * a.total_qty,
+              0
+            ),
+          0
+        );
+
+        return { circleOrders: circleOrdersArray, total: periodTotal };
       } catch (error) {
         console.error('Erreur lors de la récupération des commandes:', error);
-      } finally {
-        setLoading(false);
+        return { circleOrders: [], total: 0 };
       }
-    }
-    
-    fetchOrdersForPeriod();
-  }, [selectedPeriod]);
+  }
   
   return (
     <div>
@@ -199,77 +205,70 @@ export default function CommandesPage({ user }: CommandesPageProps) {
         Commandes par période
       </Typography>
       
-      <FormControl fullWidth margin="normal">
-        <InputLabel id="period-select-label">Période</InputLabel>
-        <Select
-          labelId="period-select-label"
-          value={selectedPeriod}
-          onChange={(e) => setSelectedPeriod(e.target.value)}
-          label="Période"
-        >
-          {periods.map(period => (
-            <MenuItem key={period.id} value={period.id}>
-              {period.nom} ({period.status})
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
       
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
           <CircularProgress />
         </Box>
-      ) : circleOrders.length === 0 ? (
-        <Typography sx={{ mt: 4 }}>Aucune commande pour cette période</Typography>
+      ) : periodOrders.length === 0 ? (
+        <Typography sx={{ mt: 4 }}>Aucune commande</Typography>
       ) : (
         <Box sx={{ mt: 3 }}>
-          {circleOrders.map(order => (
-            <Accordion key={order.circle_id} sx={{ mb: 2 }}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="h6">{order.circle_nom}</Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <TableContainer component={Paper}>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Référence</TableCell>
-                        <TableCell>Libellé</TableCell>
-                        <TableCell>Fournisseur</TableCell>
-                        <TableCell>Prix unitaire</TableCell>
-                        <TableCell>Quantité</TableCell>
-                        <TableCell>Total</TableCell>
-                      </TableRow>
-                    </TableHead>
-                  <TableBody>
-                    {order.articles.map(article => (
-                      <TableRow key={article.article_id}>
-                        <TableCell>{article.ref}</TableCell>
-                        <TableCell>{article.libelle}</TableCell>
-                        <TableCell>{article.fournisseur}</TableCell>
-                        <TableCell>{article.prix_unitaire} €</TableCell>
-                        <TableCell>{article.total_qty}</TableCell>
-                        <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              <Box sx={{ textAlign: 'right', mt: 1 }} data-testid="circle-total">
-                <Typography variant="subtitle2">
-                  Total commande :
-                  {' '}
-                  {order.articles
-                    .reduce(
-                      (sum, art) => sum + art.prix_unitaire * art.total_qty,
-                      0
-                    )
-                    .toFixed(2)}{' '}
-                  €
-                </Typography>
-              </Box>
-              </AccordionDetails>
-            </Accordion>
+          {periodOrders.map(po => (
+            <Box
+              key={po.period.id}
+              sx={{
+                mb: 4,
+                p: 2,
+                borderRadius: 1,
+                backgroundColor: po.period.status === 'open' ? '#e8f5e9' : '#eeeeee'
+              }}
+            >
+              <Typography variant="h5" sx={{ mb: 2 }} data-testid="period-total">
+                {po.period.nom} - {po.total.toFixed(2)} €
+              </Typography>
+              {po.circleOrders.map(order => (
+                <Accordion key={order.circle_id} sx={{ mb: 2 }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="h6" data-testid="circle-total">
+                      {order.circle_nom} -{' '}
+                      {order.articles
+                        .reduce((sum, art) => sum + art.prix_unitaire * art.total_qty, 0)
+                        .toFixed(2)}{' '}
+                      €
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <TableContainer component={Paper}>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Référence</TableCell>
+                            <TableCell>Libellé</TableCell>
+                            <TableCell>Fournisseur</TableCell>
+                            <TableCell>Prix unitaire</TableCell>
+                            <TableCell>Quantité</TableCell>
+                            <TableCell>Total</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {order.articles.map(article => (
+                            <TableRow key={article.article_id}>
+                              <TableCell>{article.ref}</TableCell>
+                              <TableCell>{article.libelle}</TableCell>
+                              <TableCell>{article.fournisseur}</TableCell>
+                              <TableCell>{article.prix_unitaire} €</TableCell>
+                              <TableCell>{article.total_qty}</TableCell>
+                              <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </AccordionDetails>
+                </Accordion>
+              ))}
+            </Box>
           ))}
         </Box>
       )}
