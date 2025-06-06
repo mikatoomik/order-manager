@@ -1,5 +1,5 @@
 import type { User } from '@supabase/supabase-js';
-import type { UserProfile, UserCircle } from '../testData';
+import type { UserProfile, UserCircle } from '../types';
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Chip } from '@mui/material';
@@ -22,7 +22,7 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
       if (allCirclesError) {
         console.error('Error fetching all circles:', allCirclesError);
       } else {
-        setAllCircles(allCirclesData ? allCirclesData.map((c: { nom: string }) => ({ nom: c.nom })) : []);
+        setAllCircles(allCirclesData ? allCirclesData.map((c: { id?: string, nom: string }) => ({ id: c.id || c.nom, nom: c.nom })) : []);
       }
 
       const { data: userCirclesData, error: userCirclesError } = await supabase
@@ -33,7 +33,7 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
       if (userCirclesError) {
         console.error('Error fetching user circles:', userCirclesError);
       } else {
-        setSelectedCircles(userCirclesData ? userCirclesData.map((c: { circle_name: string }) => ({ nom: c.circle_name })) : []);
+        setSelectedCircles(userCirclesData ? userCirclesData.map((c: { circle_name: string }) => ({ id: c.circle_name, nom: c.circle_name })) : []);
       }
     };
 

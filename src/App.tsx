@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import type { User } from '@supabase/supabase-js';
 import './App.css';
-import { getTestUser, getTestProfile } from './testData.ts';
-import type { UserProfile } from './testData.ts';
+import { getTestProfile } from './testData.ts';
+import type { UserProfile } from './types';
 import type { CatalogueItem, CartItem } from './types';
 import ProfilPage from './pages/ProfilPage';
 import DemandesPage from './pages/DemandesPage';
@@ -29,7 +29,22 @@ function App() {
   useEffect(() => {
     // Mode test : simule un utilisateur connecté si ?test=1 dans l’URL
     if (window.location.search.includes('test=1')) {
-      setUser(getTestUser());
+      setUser({
+        id: 'test-user-id',
+        email: 'test@lica.org',
+        aud: 'authenticated',
+        role: 'authenticated',
+        app_metadata: {},
+        user_metadata: {},
+        created_at: new Date().toISOString(),
+        confirmed_at: new Date().toISOString(),
+        identities: [],
+        last_sign_in_at: new Date().toISOString(),
+        phone: undefined,
+        email_confirmed_at: new Date().toISOString(),
+        phone_confirmed_at: undefined,
+        factors: undefined,
+      });
       setUserProfile(getTestProfile());
       setShowLogin(false);
       return;

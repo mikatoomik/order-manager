@@ -14,3 +14,15 @@ export interface CartItem {
   libelle: string;
   quantite: number;
 }
+
+// Profil utilisateur minimal
+export interface UserProfile {
+  avatar_url: string | null;
+  nickname: string | null;
+}
+
+// Cercle utilisateur minimal
+export interface UserCircle {
+  id: string;
+  nom: string;
+}
