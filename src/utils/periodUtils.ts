@@ -108,3 +108,14 @@ export async function createNextPeriodIfNeeded(): Promise<Period | null> {
   }
   return newPeriod;
 }
+
+// Traduction des statuts de période en français
+export function periodStatusToLabel(status: string) {
+  switch (status) {
+    case 'open': return 'Ouverte';
+    case 'ordered': return 'Commandée';
+    case 'closed': return 'Clôturée';
+    case 'archived': return 'Archivée';
+    default: return status;
+  }
+}

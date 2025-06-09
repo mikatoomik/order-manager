@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Select, MenuItem, Typography, Box, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField, CircularProgress } from '@mui/material';
 import type { User } from '@supabase/supabase-js';
-import type { Period } from '../utils/periodUtils';
+import { periodStatusToLabel, type Period } from '../utils/periodUtils';
 import type { UserCircle } from '../types';
 
 interface PeriodesPageProps {
@@ -150,7 +150,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
         setCommandeModalOpen(null);
         fetchPeriodes();
       }
-    } catch (e) {
+    } catch {
       setError('Erreur lors de la validation des quantités');
     }
     setCommandeLoading(false);
@@ -211,7 +211,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
                 <TableRow key={p.id}>
                   <TableCell>{p.nom}</TableCell>
                   <TableCell>{p.date_limite}</TableCell>
-                  <TableCell>{p.status}</TableCell>
+                  <TableCell>{periodStatusToLabel(p.status)}</TableCell>
                   {isFinAdmin && (
                     <TableCell>
                       <Select
@@ -219,7 +219,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
                         onChange={e => changerEtat(p.id, e.target.value)}
                         size="small"
                       >
-                        {ETATS.map(etat => <MenuItem key={etat} value={etat}>{etat}</MenuItem>)}
+                        {ETATS.map(etat => <MenuItem key={etat} value={etat}>{periodStatusToLabel(etat)}</MenuItem>)}
                       </Select>
                     </TableCell>
                   )}

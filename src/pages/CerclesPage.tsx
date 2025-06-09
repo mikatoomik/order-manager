@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { Box, Tabs, Tab, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
 import type { User } from '@supabase/supabase-js';
+import { periodStatusToLabel } from '../utils/periodUtils';
 
 interface CerclesPageProps {
   user: User;
@@ -45,7 +46,7 @@ export default function CerclesPage({ user }: CerclesPageProps) {
   const [requestsByCircle, setRequestsByCircle] = useState<Record<string, CircleRequestWithLines[]>>({});
 
   // Refactor pour pouvoir rafraîchir sans reload ni perte d'onglet
-  const fetchCirclesAndRequests = async () => {
+  const fetchCirclesAndRequests = useCallback(async () => {
     // Récupère tous les cercles
     const { data: allCirclesData } = await supabase
       .from('circles')
@@ -85,10 +86,22 @@ export default function CerclesPage({ user }: CerclesPageProps) {
           .from('request_lines')
           .select('id, qty, qty_validated, article_id, articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)')
           .eq('request_id', req.id);
-        const lines = (linesData || []).map((line: any) => ({
-          ...line,
-          articles: Array.isArray(line.articles) ? line.articles[0] : line.articles
-        }));
+        const lines = (linesData || []).map((ld: unknown) => {
+          const articlesField: unknown = (ld as { articles?: unknown }).articles;
+          let articlesObj;
+          if (Array.isArray(articlesField)) {
+            articlesObj = articlesField[0];
+          } else {
+            articlesObj = articlesField;
+          }
+          return {
+            id: (ld as { id?: string }).id ?? '',
+            qty: (ld as { qty?: number }).qty ?? 0,
+            qty_validated: (ld as { qty_validated?: number }).qty_validated,
+            article_id: (ld as { article_id?: string }).article_id ?? '',
+            articles: articlesObj as RequestLine['articles']
+          };
+        });
         reqs.push({
           id: req.id,
           status: req.status,
@@ -101,11 +114,11 @@ export default function CerclesPage({ user }: CerclesPageProps) {
       requests[circle.id] = reqs;
     }
     setRequestsByCircle(requests);
-  };
+  }, [user.id]);
 
   useEffect(() => {
     fetchCirclesAndRequests();
-  }, [user.id]);
+  }, [user.id, fetchCirclesAndRequests]);
 
   // Met à jour le statut des requests si la période est passée en 'ordered'
   useEffect(() => {
@@ -217,6 +230,7 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                               <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {p.totals.submitted.toFixed(2)} €</span>
                               <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {p.totals.validated.toFixed(2)} €</span>
                               <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {p.totals.closed.toFixed(2)} €</span>
+                              <span style={{ color: '#555', marginLeft: 8, fontStyle: 'italic' }}>({periodStatusToLabel(p.status)})</span>
                             </Typography>
                           ));
                         })()}
@@ -268,7 +282,7 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                         >Remettre toutes en brouillon</button>
                         {/* Détail de la période ciblée */}
                         <Box sx={{ mt: 1, fontSize: 14, color: '#555' }}>
-                          <strong>Période ciblée :</strong> {requestsByCircle[circle.id][0].period.nom} (statut : {statusToLabel(requestsByCircle[circle.id][0].period.status)})
+                          <strong>Période ciblée :</strong> {requestsByCircle[circle.id][0].period.nom} (statut : {periodStatusToLabel(requestsByCircle[circle.id][0].period.status)})
                         </Box>
                       </Box>
                     )}
@@ -286,7 +300,7 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                         <TableBody>
                           {(requestsByCircle[circle.id] || []).map(req => (
                             <TableRow key={req.id}>
-                              <TableCell>{req.period?.nom || '-'}</TableCell>
+                              <TableCell>{req.period?.nom || '-'}<span style={{ color: '#555', marginLeft: 6, fontSize: 12 }}>({periodStatusToLabel(req.period?.status)})</span></TableCell>
                               <TableCell>
                                 <Chip 
                                   label={statusToLabel(req.status)} 
