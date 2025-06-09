@@ -147,19 +147,21 @@ export default function CommandesPage() {
           .select(`
             id,
             qty,
+            qty_validated,
             article_id,
             articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)
           `)
           .eq('request_id', request.id);
         if (linesError) throw linesError;
+        // Utiliser qty_validated si elle existe pour l'agrégation
         if (requestLines && requestLines.length > 0) {
           requestLines.forEach(line => {
-            // Gestion du typage : line.articles peut être un tableau ou un objet
             const article = Array.isArray(line.articles) ? line.articles[0] : line.articles;
+            const qtyToUse = typeof line.qty_validated === 'number' ? line.qty_validated : line.qty;
             const existingArticleIndex = ordersByCircle[circleId].articles.findIndex(a => a.article_id === line.article_id);
             if (existingArticleIndex !== -1) {
               // Si l'article existe déjà, augmenter la quantité
-              ordersByCircle[circleId].articles[existingArticleIndex].total_qty += line.qty;
+              ordersByCircle[circleId].articles[existingArticleIndex].total_qty += qtyToUse;
             } else {
               // Sinon, ajouter un nouvel article
               ordersByCircle[circleId].articles.push({
@@ -168,7 +170,7 @@ export default function CommandesPage() {
                 ref: article.ref,
                 fournisseur: article.fournisseur,
                 prix_unitaire: article.prix_unitaire,
-                total_qty: line.qty
+                total_qty: qtyToUse
               });
             }
           });

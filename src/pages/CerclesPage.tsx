@@ -22,7 +22,8 @@ interface CircleRequest {
 
 interface RequestLine {
   id: string;
-  qty: number;
+  qty: number; // quantité demandée
+  qty_validated?: number; // quantité validée par FinAdmin (optionnel)
   article_id: string;
   articles: {
     id: string;
@@ -82,7 +83,7 @@ export default function CerclesPage({ user }: CerclesPageProps) {
         // Récupérer les lignes de commande (request_lines)
         const { data: linesData } = await supabase
           .from('request_lines')
-          .select('id, qty, article_id, articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)')
+          .select('id, qty, qty_validated, article_id, articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)')
           .eq('request_id', req.id);
         const lines = (linesData || []).map((line: any) => ({
           ...line,
@@ -105,6 +106,21 @@ export default function CerclesPage({ user }: CerclesPageProps) {
   useEffect(() => {
     fetchCirclesAndRequests();
   }, [user.id]);
+
+  // Met à jour le statut des requests si la période est passée en 'ordered'
+  useEffect(() => {
+    // Pour chaque cercle, pour chaque request, si la période est 'ordered' et la request est 'submitted', passer à 'validated'
+    Object.values(requestsByCircle).forEach(requests => {
+      requests.forEach(async req => {
+        if (req.period?.status === 'ordered' && req.status === 'submitted') {
+          await supabase
+            .from('circle_requests')
+            .update({ status: 'validated' })
+            .eq('id', req.id);
+        }
+      });
+    });
+  }, [requestsByCircle]);
 
   // Traduction des statuts
   const statusToLabel = (status: string) => {
@@ -188,7 +204,8 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                                 totals: { draft: 0, submitted: 0, validated: 0, closed: 0 }
                               };
                             }
-                            const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * l.qty, 0);
+                            // Pour les sous-totaux par période, utiliser qty_validated si elle existe
+                            const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
                             if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
                               periodMap[pId].totals[req.status as Statut] += total;
                             }
@@ -212,7 +229,8 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                           type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
                           const totals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0 };
                           (requestsByCircle[circle.id] || []).forEach(req => {
-                            const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * l.qty, 0);
+                            // Pour les sous-totaux par cercle (tous statuts confondus), idem
+                            const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
                             if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
                               totals[req.status as Statut] += total;
                             }
@@ -310,8 +328,13 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                                           <TableCell>{line.articles?.ref || '-'}</TableCell>
                                           <TableCell>{line.articles?.fournisseur || '-'}</TableCell>
                                           <TableCell>{line.articles?.prix_unitaire?.toFixed(2) || '-'}</TableCell>
-                                          <TableCell>{line.qty}</TableCell>
-                                          <TableCell>{line.articles?.prix_unitaire ? (line.articles.prix_unitaire * line.qty).toFixed(2) : '-'}</TableCell>
+                                          <TableCell>
+                                            {line.qty}
+                                            {typeof line.qty_validated === 'number' && line.qty_validated !== line.qty && (
+                                              <span style={{ color: '#1976d2', marginLeft: 4 }} title="Quantité validée par FinAdmin">→ {line.qty_validated}</span>
+                                            )}
+                                          </TableCell>
+                                          <TableCell>{line.articles?.prix_unitaire ? (line.articles.prix_unitaire * (typeof line.qty_validated === 'number' ? line.qty_validated : line.qty)).toFixed(2) : '-'}</TableCell>
                                         </TableRow>
                                       ))}
                                     </TableBody>
