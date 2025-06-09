@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button, FormControl, InputLabel, Select, MenuItem, Box, Typography, Alert } from '@mui/material';
 import { supabase } from '../supabaseClient';
-import { getOrCreatePeriodRecord } from '../utils/periodUtils';
+import { getCurrentPeriodRecord } from '../utils/periodUtils';
 import type { Period } from '../utils/periodUtils';
 import type { CartItem, CatalogueItem } from '../types';
 import type { User } from '@supabase/supabase-js';
@@ -29,7 +29,7 @@ export default function DemandesPage({ articles, setArticles, catalogue, user }:
   // Récupérer la période en cours
   useEffect(() => {
     async function fetchCurrentPeriod() {
-      const period = await getOrCreatePeriodRecord();
+      const period = await getCurrentPeriodRecord();
       setCurrentPeriod(period);
     }
     fetchCurrentPeriod();

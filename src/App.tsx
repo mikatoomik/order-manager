@@ -9,21 +9,24 @@ import ProfilPage from './pages/ProfilPage';
 import DemandesPage from './pages/DemandesPage';
 import CataloguePage from './pages/CataloguePage';
 import CommandesPage from './pages/CommandesPage';
+import PeriodesPage from './pages/PeriodesPage';
 import { Button, Container, Box, Typography, AppBar, Toolbar, BottomNavigation, BottomNavigationAction } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import ListAltIcon from '@mui/icons-material/ListAlt';
+import { createNextPeriodIfNeeded } from './utils/periodUtils';
 
 function App() {
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [articles, setArticles] = useState<CartItem[]>([])
-  const [page, setPage] = useState<'demandes' | 'catalogue' | 'profil' | 'commandes'>('demandes');
+  const [page, setPage] = useState<'demandes' | 'catalogue' | 'profil' | 'commandes' | 'periodes'>('demandes');
   const [catalogue, setCatalogue] = useState<CatalogueItem[]>([])
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isFinAdmin, setIsFinAdmin] = useState(false);
 
   // Détection de l'utilisateur connecté
   useEffect(() => {
@@ -62,6 +65,11 @@ function App() {
     return () => { listener?.subscription.unsubscribe() }
   }, [])
 
+  // Vérifie/crée la prochaine période au lancement de l'app
+  useEffect(() => {
+    createNextPeriodIfNeeded();
+  }, []);
+
   // Récupération des articles depuis Supabase
   useEffect(() => {
     if (page === 'catalogue' && showLogin === false) {
@@ -88,6 +96,20 @@ function App() {
     }
   }, [page, user]);
 
+  // Vérification des droits FinAdmin
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('user_circles')
+        .select('circles(id, nom)')
+        .eq('user_id', user.id)
+        .then(({ data }) => {
+          const circles = (data || []).map((item) => Array.isArray(item.circles) ? item.circles[0] : item.circles).filter(Boolean);
+          setIsFinAdmin(circles.some((c) => c.nom === 'FinAdmin'));
+        });
+    }
+  }, [user]);
+
   // Gestion Google Auth
   const handleGoogleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -98,6 +120,16 @@ function App() {
     });
     if (error) setAuthMessage("Erreur lors de la connexion Google : " + error.message);
   };
+
+  const pages = [
+    { label: 'Demandes', value: 'demandes', icon: <RestoreIcon /> },
+    { label: 'Catalogue', value: 'catalogue', icon: <FavoriteIcon /> },
+    { label: 'Commandes', value: 'commandes', icon: <ListAltIcon /> },
+    { label: 'Profil', value: 'profil', icon: <LocationOnIcon /> },
+  ];
+  if (isFinAdmin) {
+    pages.splice(3, 0, { label: 'Périodes', value: 'periodes', icon: <ListAltIcon /> });
+  }
 
   return (
     <>
@@ -160,6 +192,9 @@ function App() {
             {page === 'commandes' && (
               <CommandesPage />
             )}
+            {isFinAdmin && page === 'periodes' && (
+              <PeriodesPage user={user} />
+            )}
           </>
         )}
       </Container>
@@ -171,10 +206,9 @@ function App() {
           }}
           showLabels
         >
-          <BottomNavigationAction label="Demandes" value="demandes" icon={<RestoreIcon />} />
-          <BottomNavigationAction label="Catalogue" value="catalogue" icon={<FavoriteIcon />} />
-          <BottomNavigationAction label="Commandes" value="commandes" icon={<ListAltIcon />} />
-          <BottomNavigationAction label="Profil" value="profil" icon={<LocationOnIcon />} />
+          {pages.map((p) => (
+            <BottomNavigationAction key={p.value} label={p.label} value={p.value} icon={p.icon} />
+          ))}
         </BottomNavigation>
       </AppBar>
     </>

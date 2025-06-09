@@ -40,7 +40,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import type { CatalogueItem, CartItem } from '../types';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
-import { getOrCreatePeriodRecord, type Period } from '../utils/periodUtils';
+import { getCurrentPeriodRecord, type Period } from '../utils/periodUtils';
 
 interface CataloguePageProps {
   catalogue: CatalogueItem[];
@@ -122,7 +122,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
 
   useEffect(() => {
     async function fetchCurrentPeriod() {
-      const period = await getOrCreatePeriodRecord();
+      const period = await getCurrentPeriodRecord();
       setCurrentPeriod(period);
     }
     fetchCurrentPeriod();

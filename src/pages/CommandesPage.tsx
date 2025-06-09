@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { supabase } from '../supabaseClient';
+import { getCurrentPeriodRecord } from '../utils/periodUtils';
 
 // Interfaces pour les données retournées par Supabase
 
@@ -76,6 +77,32 @@ export default function CommandesPage() {
     }
 
     fetchPeriodsAndOrders();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      await getCurrentPeriodRecord();
+      // Recharger les périodes et commandes après la création éventuelle de la période
+      const { data: periodsData, error } = await supabase
+        .from('order_periods')
+        .select('*')
+        .order('date_limite', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des périodes:', error);
+        return;
+      }
+
+      const results: PeriodOrders[] = [];
+      if (periodsData) {
+        for (const period of periodsData) {
+          const { circleOrders, total } = await fetchOrdersForPeriod(period.id);
+          results.push({ period, circleOrders, total });
+        }
+      }
+
+      setPeriodOrders(results);
+    })();
   }, []);
 
   async function fetchOrdersForPeriod(periodId: string): Promise<{ circleOrders: CircleOrder[]; total: number }> {
@@ -178,58 +205,66 @@ export default function CommandesPage() {
         <Typography sx={{ mt: 4 }}>Aucune commande</Typography>
       ) : (
         <Box sx={{ mt: 3 }}>
-          {periodOrders.map(po => (
-            <Box
-              key={po.period.id}
-              sx={{
-                mb: 4,
-                p: 2,
-                borderRadius: 1,
-                backgroundColor: po.period.status === 'open' ? '#e8f5e9' : '#eeeeee'
-              }}
-            >
-              <Typography variant="h5" sx={{ mb: 2 }} data-testid="period-total">
-                {po.period.nom} - {po.total.toFixed(2)} €
-              </Typography>
-              {po.circleOrders.map(order => (
-                <Accordion key={order.circle_id} sx={{ mb: 2 }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="h6" data-testid="circle-total">
-                      {order.circle_nom} -{' '}
-                      {order.articles
-                        .reduce((sum, art) => sum + art.prix_unitaire * art.total_qty, 0)
-                        .toFixed(2)}{' '}
-                      €
-                    </Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <TableContainer component={Paper}>
-                      <Table>
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Référence</TableCell>
-                            <TableCell>Libellé</TableCell>
-                            <TableCell>Fournisseur</TableCell>
-                            <TableCell>Prix unitaire</TableCell>
-                            <TableCell>Quantité</TableCell>
-                            <TableCell>Total</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {order.articles.map(article => (
-                            <TableRow key={article.article_id}>
-                              <TableCell>{article.ref}</TableCell>
-                              <TableCell>{article.libelle}</TableCell>
-                              <TableCell>{article.fournisseur}</TableCell>
-                              <TableCell>{article.prix_unitaire} €</TableCell>
-                              <TableCell>{article.total_qty}</TableCell>
-                              <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
+          {periodOrders
+            .filter(po => po.period.status !== 'archived')
+            .sort((a, b) => new Date(b.period.date_limite).getTime() - new Date(a.period.date_limite).getTime())
+            .map(po => (
+              <Box
+                key={po.period.id}
+                sx={{
+                  mb: 4,
+                  p: 2,
+                  borderRadius: 1,
+                  backgroundColor:
+                    po.period.status === 'open'
+                      ? '#e8f5e9'
+                      : po.period.status === 'ordered'
+                        ? '#e3f2fd' // bleu clair
+                        : '#eeeeee'
+                }}
+              >
+                <Typography variant="h5" sx={{ mb: 2 }} data-testid="period-total">
+                  {po.period.nom} - {po.total.toFixed(2)} €
+                </Typography>
+                {po.circleOrders.map(order => (
+                  <Accordion key={order.circle_id} sx={{ mb: 2 }}>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Typography variant="h6" data-testid="circle-total">
+                        {order.circle_nom} -{' '}
+                        {order.articles
+                          .reduce((sum, art) => sum + art.prix_unitaire * art.total_qty, 0)
+                          .toFixed(2)}{' '}
+                        €
+                      </Typography>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      <TableContainer component={Paper}>
+                        <Table>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Référence</TableCell>
+                              <TableCell>Libellé</TableCell>
+                              <TableCell>Fournisseur</TableCell>
+                              <TableCell>Prix unitaire</TableCell>
+                              <TableCell>Quantité</TableCell>
+                              <TableCell>Total</TableCell>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                    <Box sx={{ textAlign: 'right', mt: 1 }} data-testid="circle-total">
+                          </TableHead>
+                          <TableBody>
+                            {order.articles.map(article => (
+                              <TableRow key={article.article_id}>
+                                <TableCell>{article.ref}</TableCell>
+                                <TableCell>{article.libelle}</TableCell>
+                                <TableCell>{article.fournisseur}</TableCell>
+                                <TableCell>{article.prix_unitaire} €</TableCell>
+                                <TableCell>{article.total_qty}</TableCell>
+                                <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      <Box sx={{ textAlign: 'right', mt: 1 }} data-testid="circle-total">
                 <Typography variant="subtitle2">
                   Total commande :
                   {' '}
@@ -242,11 +277,11 @@ export default function CommandesPage() {
                   €
                 </Typography>
               </Box>
-                  </AccordionDetails>
-                </Accordion>
-              ))}
-            </Box>
-          ))}
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Box>
+            ))}
         </Box>
       )}
     </div>

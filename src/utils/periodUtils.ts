@@ -38,38 +38,73 @@ export function getCurrentPeriod(): { start: Date; end: Date; name: string } {
 }
 
 /**
- * Récupère ou crée l'enregistrement de période correspondant à la période en cours
+ * Récupère l'enregistrement de période correspondant à la période en cours
  * @returns Promise contenant l'objet Period ou null en cas d'erreur
  */
-export async function getOrCreatePeriodRecord(): Promise<Period | null> {
+export async function getCurrentPeriodRecord(): Promise<Period | null> {
   const period = getCurrentPeriod();
-  
-  // Vérifier si la période existe déjà
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('order_periods')
     .select('*')
     .eq('nom', period.name)
-    .single();
-  
-  if (data) return data;
-  
-  // Créer la période si elle n'existe pas
+    .limit(1);
+  if (error) {
+    console.error('Erreur lors de la recherche de la période:', error);
+    return null;
+  }
+  if (data && data.length > 0) return data[0];
+  return null;
+}
+
+export function getNextPeriod(): { start: Date; end: Date; name: string } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  let start, end;
+  if (day <= 15) {
+    // Prochaine période = 16-fin du mois
+    start = new Date(year, month, 16);
+    end = new Date(year, month + 1, 0);
+  } else {
+    // Prochaine période = 1-15 du mois suivant
+    start = new Date(year, month + 1, 1);
+    end = new Date(year, month + 1, 15);
+  }
+  return {
+    start,
+    end,
+    name: `${start.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}`
+  };
+}
+
+export async function createNextPeriodIfNeeded(): Promise<Period | null> {
+  const next = getNextPeriod();
+  const { data, error } = await supabase
+    .from('order_periods')
+    .select('*')
+    .eq('nom', next.name)
+    .limit(1);
+  if (error) {
+    console.error('Erreur lors de la recherche de la prochaine période:', error);
+    return null;
+  }
+  if (data && data.length > 0) return data[0];
+  // Créer la prochaine période
   const { data: newPeriod, error: createError } = await supabase
     .from('order_periods')
     .insert([
       {
-        nom: period.name,
-        date_limite: period.end.toISOString().split('T')[0],
+        nom: next.name,
+        date_limite: next.end.toISOString().split('T')[0],
         status: 'open'
       }
     ])
     .select()
     .single();
-  
   if (createError) {
-    console.error('Erreur lors de la création de la période:', createError);
+    console.error('Erreur lors de la création de la prochaine période:', createError);
     return null;
   }
-  
   return newPeriod;
 }
