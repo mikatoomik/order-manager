@@ -333,9 +333,34 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
     return sum + (item ? item.prix_unitaire * a.quantite : 0);
   }, 0);
 
+  const [openPeriods, setOpenPeriods] = useState<Period[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
+
+  // Charger toutes les périodes ouvertes au montage
+  useEffect(() => {
+    async function fetchOpenPeriods() {
+      const { data, error } = await supabase
+        .from('order_periods')
+        .select('*')
+        .eq('status', 'open')
+        .order('date_limite', { ascending: true });
+      if (!error && data) {
+        setOpenPeriods(data);
+        // Si une seule période, la sélectionner automatiquement
+        if (data.length === 1) setSelectedPeriodId(data[0].id);
+        // Si la période courante est dans la liste, la sélectionner par défaut
+        else if (currentPeriod && data.some(p => p.id === currentPeriod.id)) setSelectedPeriodId(currentPeriod.id);
+        else if (data.length > 0) setSelectedPeriodId(data[0].id);
+      }
+    }
+    fetchOpenPeriods();
+  }, [currentPeriod]);
+
   const handleValidateOrder = async () => {
-    if (!currentPeriod) {
-      setSubmitError('Impossible de déterminer la période en cours');
+    // Remplacer currentPeriod par la période sélectionnée
+    const periodToUse = openPeriods.find(p => p.id === selectedPeriodId) || currentPeriod;
+    if (!periodToUse) {
+      setSubmitError('Impossible de déterminer la période de commande');
       return;
     }
     if (!selectedCircle) {
@@ -353,24 +378,21 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
       const { data: newRequest, error: insertError } = await supabase
         .from('circle_requests')
         .insert([
-          { circle_id: selectedCircle, period_id: currentPeriod.id, created_by: user.id, status: 'draft' }
+          { circle_id: selectedCircle, period_id: periodToUse.id, created_by: user.id, status: 'draft' }
         ])
         .select()
         .single();
       if (insertError) throw insertError;
       const requestId = newRequest.id;
-
       const requestLines = articles.map(article => ({
         request_id: requestId,
         article_id: getArticleIdByLibelle(article.libelle),
         qty: article.quantite
       }));
-
       const { error: linesError } = await supabase
         .from('request_lines')
         .insert(requestLines);
       if (linesError) throw linesError;
-
       setSubmitSuccess(true);
       setArticles([]);
     } catch (error) {
@@ -723,11 +745,21 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
                 <Typography variant="subtitle1" sx={{ mb: 1 }} data-testid="drawer-total">
                   Total : {totalPrice.toFixed(2)} €
                 </Typography>
-                {currentPeriod && (
-                  <Typography variant="body2" gutterBottom>
-                    Période : {currentPeriod.nom}
-                  </Typography>
+                {/* Sous-total par article */}
+                {articles.length > 0 && (
+                  <Box sx={{ mb: 1 }}>
+                    {articles.map(article => {
+                      const item = catalogue.find(c => c.libelle === article.libelle);
+                      if (!item) return null;
+                      return (
+                        <Typography key={article.libelle} variant="body2" sx={{ color: '#888' }}>
+                          {article.libelle} : {article.quantite} × {item.prix_unitaire.toFixed(2)} € = {(item.prix_unitaire * article.quantite).toFixed(2)} €
+                        </Typography>
+                      );
+                    })}
+                  </Box>
                 )}
+                {/* Sélection du cercle si plusieurs cercles */}
                 {userCircles.length > 1 ? (
                   <FormControl fullWidth margin="normal">
                     <InputLabel id="drawer-circle-label">Cercle</InputLabel>
@@ -750,6 +782,35 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
                       Cercle : {userCircles[0].nom}
                     </Typography>
                   )
+                )}
+                {/* Sélection de la période si plusieurs périodes ouvertes */}
+                {openPeriods.length > 1 && (
+                  <FormControl fullWidth margin="normal">
+                    <InputLabel id="drawer-period-label">Période</InputLabel>
+                    <Select
+                      labelId="drawer-period-label"
+                      value={selectedPeriodId || ''}
+                      onChange={e => setSelectedPeriodId(e.target.value)}
+                      label="Période"
+                    >
+                      {openPeriods.map(period => (
+                        <MenuItem key={period.id} value={period.id}>
+                          {period.nom}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+                {/* Affichage de la période sélectionnée si une seule ou sélectionnée */}
+                {openPeriods.length === 1 && openPeriods[0] && (
+                  <Typography variant="body2" gutterBottom>
+                    Période : {openPeriods[0].nom}
+                  </Typography>
+                )}
+                {openPeriods.length > 1 && selectedPeriodId && (
+                  <Typography variant="body2" gutterBottom>
+                    Période sélectionnée : {openPeriods.find(p => p.id === selectedPeriodId)?.nom}
+                  </Typography>
                 )}
                 {submitSuccess && (
                   <Alert severity="success" sx={{ mt: 1 }}>

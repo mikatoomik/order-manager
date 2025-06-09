@@ -112,82 +112,85 @@ export default function CommandesPage() {
         .select(
           `id,
            circle_id,
-           circles:circle_id (id, nom)`
+           circles:circle_id (id, nom),
+           status`
         )
         .eq('period_id', periodId);
-        
-        if (requestsError) throw requestsError;
+      
+      if (requestsError) throw requestsError;
 
-        if (!requests || requests.length === 0) {
-          return { circleOrders: [], total: 0 };
-        }
-        
-        // Créer un tableau pour stocker les commandes par cercle
-        const ordersByCircle: Record<string, CircleOrder> = {};
-        
-        // Pour chaque commande, récupérer les lignes et les articles
-        for (const request of requests) {
-          const circleId = request.circle_id;
-          // Gestion du typage : request.circles peut être un tableau ou un objet
-          const circle = Array.isArray(request.circles) ? request.circles[0] : request.circles;
-          const circleName = circle.nom;
-          if (!ordersByCircle[circleId]) {
-            ordersByCircle[circleId] = {
-              circle_id: circleId,
-              circle_nom: circleName,
-              articles: []
-            };
-          }
-          // Récupérer les lignes de commande pour cette commande
-          const { data: requestLines, error: linesError } = await supabase
-            .from('request_lines')
-            .select(`
-              id,
-              qty,
-              article_id,
-              articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)
-            `)
-            .eq('request_id', request.id);
-          if (linesError) throw linesError;
-          if (requestLines && requestLines.length > 0) {
-            requestLines.forEach(line => {
-              // Gestion du typage : line.articles peut être un tableau ou un objet
-              const article = Array.isArray(line.articles) ? line.articles[0] : line.articles;
-              const existingArticleIndex = ordersByCircle[circleId].articles.findIndex(a => a.article_id === line.article_id);
-              if (existingArticleIndex !== -1) {
-                // Si l'article existe déjà, augmenter la quantité
-                ordersByCircle[circleId].articles[existingArticleIndex].total_qty += line.qty;
-              } else {
-                // Sinon, ajouter un nouvel article
-                ordersByCircle[circleId].articles.push({
-                  article_id: line.article_id,
-                  libelle: article.libelle,
-                  ref: article.ref,
-                  fournisseur: article.fournisseur,
-                  prix_unitaire: article.prix_unitaire,
-                  total_qty: line.qty
-                });
-              }
-            });
-          }
-        }
-        
-        const circleOrdersArray = Object.values(ordersByCircle);
-        const periodTotal = circleOrdersArray.reduce(
-          (sum, o) =>
-            sum +
-            o.articles.reduce(
-              (s, a) => s + a.prix_unitaire * a.total_qty,
-              0
-            ),
-          0
-        );
-
-        return { circleOrders: circleOrdersArray, total: periodTotal };
-      } catch (error) {
-        console.error('Erreur lors de la récupération des commandes:', error);
+      // Filtrer pour ne garder que les statuts différents de 'draft'
+      const filteredRequests = (requests || []).filter(r => r.status !== 'draft');
+      if (filteredRequests.length === 0) {
         return { circleOrders: [], total: 0 };
       }
+      
+      // Créer un tableau pour stocker les commandes par cercle
+      const ordersByCircle: Record<string, CircleOrder> = {};
+      
+      // Pour chaque commande, récupérer les lignes et les articles
+      for (const request of filteredRequests) {
+        const circleId = request.circle_id;
+        // Gestion du typage : request.circles peut être un tableau ou un objet
+        const circle = Array.isArray(request.circles) ? request.circles[0] : request.circles;
+        const circleName = circle.nom;
+        if (!ordersByCircle[circleId]) {
+          ordersByCircle[circleId] = {
+            circle_id: circleId,
+            circle_nom: circleName,
+            articles: []
+          };
+        }
+        // Récupérer les lignes de commande pour cette commande
+        const { data: requestLines, error: linesError } = await supabase
+          .from('request_lines')
+          .select(`
+            id,
+            qty,
+            article_id,
+            articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)
+          `)
+          .eq('request_id', request.id);
+        if (linesError) throw linesError;
+        if (requestLines && requestLines.length > 0) {
+          requestLines.forEach(line => {
+            // Gestion du typage : line.articles peut être un tableau ou un objet
+            const article = Array.isArray(line.articles) ? line.articles[0] : line.articles;
+            const existingArticleIndex = ordersByCircle[circleId].articles.findIndex(a => a.article_id === line.article_id);
+            if (existingArticleIndex !== -1) {
+              // Si l'article existe déjà, augmenter la quantité
+              ordersByCircle[circleId].articles[existingArticleIndex].total_qty += line.qty;
+            } else {
+              // Sinon, ajouter un nouvel article
+              ordersByCircle[circleId].articles.push({
+                article_id: line.article_id,
+                libelle: article.libelle,
+                ref: article.ref,
+                fournisseur: article.fournisseur,
+                prix_unitaire: article.prix_unitaire,
+                total_qty: line.qty
+              });
+            }
+          });
+        }
+      }
+      
+      const circleOrdersArray = Object.values(ordersByCircle);
+      const periodTotal = circleOrdersArray.reduce(
+        (sum, o) =>
+          sum +
+          o.articles.reduce(
+            (s, a) => s + a.prix_unitaire * a.total_qty,
+            0
+          ),
+        0
+      );
+
+      return { circleOrders: circleOrdersArray, total: periodTotal };
+    } catch (error) {
+      console.error('Erreur lors de la récupération des commandes:', error);
+      return { circleOrders: [], total: 0 };
+    }
   }
   
   return (
