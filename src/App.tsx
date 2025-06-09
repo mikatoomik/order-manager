@@ -6,10 +6,10 @@ import { getTestProfile } from './testData.ts';
 import type { UserProfile } from './types';
 import type { CatalogueItem, CartItem } from './types';
 import ProfilPage from './pages/ProfilPage';
-import DemandesPage from './pages/DemandesPage';
-import CataloguePage from './pages/CataloguePage';
 import CommandesPage from './pages/CommandesPage';
 import PeriodesPage from './pages/PeriodesPage';
+import CerclesPage from './pages/CerclesPage';
+import CataloguePage from './pages/CataloguePage';
 import { Button, Container, Box, Typography, AppBar, Toolbar, BottomNavigation, BottomNavigationAction } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import FavoriteIcon from '@mui/icons-material/Favorite';
@@ -21,7 +21,7 @@ function App() {
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [articles, setArticles] = useState<CartItem[]>([])
-  const [page, setPage] = useState<'demandes' | 'catalogue' | 'profil' | 'commandes' | 'periodes'>('demandes');
+  const [page, setPage] = useState<'cercles' | 'catalogue' | 'profil' | 'commandes' | 'periodes'>('cercles');
   const [catalogue, setCatalogue] = useState<CatalogueItem[]>([])
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -122,7 +122,7 @@ function App() {
   };
 
   const pages = [
-    { label: 'Demandes', value: 'demandes', icon: <RestoreIcon /> },
+    { label: 'Cercles', value: 'cercles', icon: <RestoreIcon /> },
     { label: 'Catalogue', value: 'catalogue', icon: <FavoriteIcon /> },
     { label: 'Commandes', value: 'commandes', icon: <ListAltIcon /> },
     { label: 'Profil', value: 'profil', icon: <LocationOnIcon /> },
@@ -166,13 +166,8 @@ function App() {
         {authMessage && <Typography color="error">{authMessage}</Typography>}
         {user && (
           <>
-            {page === 'demandes' && (
-              <DemandesPage
-                articles={articles}
-                setArticles={setArticles}
-                catalogue={catalogue}
-                user={user}
-              />
+            {page === 'cercles' && (
+              <CerclesPage user={user} />
             )}
             {page === 'catalogue' && (
               <CataloguePage

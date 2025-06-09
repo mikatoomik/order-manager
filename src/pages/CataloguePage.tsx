@@ -349,29 +349,16 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const { data: existingRequest } = await supabase
+      // Toujours insérer une nouvelle circle_request, même s'il en existe déjà une
+      const { data: newRequest, error: insertError } = await supabase
         .from('circle_requests')
-        .select('id')
-        .eq('circle_id', selectedCircle)
-        .eq('period_id', currentPeriod.id)
-        .eq('created_by', user.id)
+        .insert([
+          { circle_id: selectedCircle, period_id: currentPeriod.id, created_by: user.id, status: 'draft' }
+        ])
+        .select()
         .single();
-
-      let requestId;
-      if (existingRequest) {
-        requestId = existingRequest.id;
-        await supabase.from('request_lines').delete().eq('request_id', requestId);
-      } else {
-        const { data: newRequest, error: insertError } = await supabase
-          .from('circle_requests')
-          .insert([
-            { circle_id: selectedCircle, period_id: currentPeriod.id, created_by: user.id, status: 'draft' }
-          ])
-          .select()
-          .single();
-        if (insertError) throw insertError;
-        requestId = newRequest.id;
-      }
+      if (insertError) throw insertError;
+      const requestId = newRequest.id;
 
       const requestLines = articles.map(article => ({
         request_id: requestId,
