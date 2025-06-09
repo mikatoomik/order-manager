@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Box, Tabs, Tab, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
 import type { User } from '@supabase/supabase-js';
-import type { UserProfile, UserCircle } from '../types';
 
 interface CerclesPageProps {
   user: User;
