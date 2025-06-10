@@ -44,6 +44,7 @@ interface PeriodOrders {
   period: Period;
   circleOrders: CircleOrder[];
   total: number;
+  status: Period['status'];
 }
 
 export default function CommandesPage() {
@@ -229,7 +230,7 @@ export default function CommandesPage() {
                 }}
               >
                 <Typography variant="h5" sx={{ mb: 2 }} data-testid="period-total">
-                  {po.period.nom} - {po.total.toFixed(2)} €
+                  {po.period.nom} - {po.total.toFixed(2)} € - {getStatusLabel(po.period.status)}
                 </Typography>
                 {po.circleOrders.map(order => (
                   <Accordion key={order.circle_id} sx={{ mb: 2 }}>
@@ -291,4 +292,20 @@ export default function CommandesPage() {
       )}
     </div>
   );
+}
+
+// Ajout de la fonction utilitaire pour la traduction du statut
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case 'open':
+      return 'Ouverte';
+    case 'ordered':
+      return 'Commandée';
+    case 'archived':
+      return 'Archivée';
+    case 'closed':
+      return 'Fermée';
+    default:
+      return status;
+  }
 }

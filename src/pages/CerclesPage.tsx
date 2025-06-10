@@ -120,6 +120,14 @@ export default function CerclesPage({ user }: CerclesPageProps) {
     fetchCirclesAndRequests();
   }, [user.id, fetchCirclesAndRequests]);
 
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchCirclesAndRequests();
+    }, 10000); // 10 secondes
+    return () => clearInterval(interval);
+  }, [fetchCirclesAndRequests]);
+
   // Met à jour le statut des requests si la période est passée en 'ordered' ou 'closed'
   useEffect(() => {
     // Pour chaque cercle, pour chaque request, si la période est 'ordered' et la request est 'submitted', passer à 'validated'
