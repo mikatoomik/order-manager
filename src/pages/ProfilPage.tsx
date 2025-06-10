@@ -17,31 +17,37 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
     const fetchAllCircles = async () => {
       const { data: allCirclesData, error: allCirclesError } = await supabase
         .from('circles')
-        .select('nom');
+        .select('id, nom');
 
       if (allCirclesError) {
         console.error('Error fetching all circles:', allCirclesError);
-      } else {
-        setAllCircles(allCirclesData ? allCirclesData.map((c: { id?: string, nom: string }) => ({ id: c.id || c.nom, nom: c.nom })) : []);
+        setAllCircles([]);
+        setSelectedCircles([]);
+        return;
       }
+      const allCirclesList = allCirclesData ? allCirclesData.map((c: { id: string, nom: string }) => ({ id: c.id, nom: c.nom })) : [];
+      setAllCircles(allCirclesList);
 
       const { data: userCirclesData, error: userCirclesError } = await supabase
         .from('user_circles')
-        .select('circle_name')
+        .select('circle_id')
         .eq('user_id', user.id);
 
       if (userCirclesError) {
         console.error('Error fetching user circles:', userCirclesError);
+        setSelectedCircles([]);
       } else {
-        setSelectedCircles(userCirclesData ? userCirclesData.map((c: { circle_name: string }) => ({ id: c.circle_name, nom: c.circle_name })) : []);
+        setSelectedCircles(userCirclesData ? userCirclesData.map((c: { circle_id: string }) => {
+          const found = allCirclesList.find(ac => ac.id === c.circle_id);
+          return found ? found : { id: c.circle_id, nom: c.circle_id };
+        }) : []);
       }
     };
-
     fetchAllCircles();
   }, [user.id]);
 
   const handleCircleClick = async (circle: UserCircle) => {
-    const isSelected = selectedCircles.some((c) => c.nom === circle.nom);
+    const isSelected = selectedCircles.some((c) => c.id === circle.id);
 
     if (isSelected) {
       // Remove circle from user_circles
@@ -49,18 +55,18 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
         .from('user_circles')
         .delete()
         .eq('user_id', user.id)
-        .eq('circle_name', circle.nom);
+        .eq('circle_id', circle.id);
 
       if (error) {
         console.error('Error removing user circle:', error);
       } else {
-        setSelectedCircles(selectedCircles.filter((c) => c.nom !== circle.nom));
+        setSelectedCircles(selectedCircles.filter((c) => c.id !== circle.id));
       }
     } else {
       // Add circle to user_circles
       const { error } = await supabase
         .from('user_circles')
-        .insert([{ user_id: user.id, circle_name: circle.nom }]);
+        .insert([{ user_id: user.id, circle_id: circle.id }]);
 
       if (error) {
         console.error('Error adding user circle:', error);
@@ -88,15 +94,36 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
       <div>
         <p>Cercles d’appartenance :</p>
         <div data-testid="profil-cercles">
-          {allCircles.map((circle) => (
-            <Chip
-              key={circle.nom}
-              label={circle.nom}
-              onClick={() => handleCircleClick(circle)}
-              color={selectedCircles.some((c) => c.nom === circle.nom) ? 'primary' : 'default'}
-              style={{ margin: '4px' }}
-            />
-          ))}
+          {allCircles.map((circle) => {
+            const isUserCircle = selectedCircles.some((c) => c.id === circle.id);
+            let customColor = undefined;
+            if (isUserCircle) {
+              switch (circle.nom) {
+                case 'IA': customColor = '#ffc578'; break;
+                case 'IC': customColor = '#eeaeff'; break;
+                case 'TES': customColor = '#9fffb0'; break;
+                case 'Commun': customColor = '#9da7f9'; break;
+                case 'FinAdmin': customColor = '#fffbb0'; break;
+                default: customColor = undefined;
+              }
+            }
+            return (
+              <Chip
+                key={circle.nom}
+                label={circle.nom}
+                onClick={() => handleCircleClick(circle)}
+                style={{
+                  margin: '4px',
+                  backgroundColor: isUserCircle && customColor ? customColor : undefined,
+                  fontWeight: isUserCircle ? 600 : 400,
+                  color: isUserCircle && customColor ? '#222' : undefined,
+                  cursor: 'pointer',
+                  opacity: 1
+                }}
+                variant={isUserCircle ? 'filled' : 'outlined'}
+              />
+            );
+          })}
         </div>
       </div>
     </div>

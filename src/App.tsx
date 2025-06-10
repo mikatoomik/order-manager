@@ -21,7 +21,7 @@ function App() {
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [articles, setArticles] = useState<CartItem[]>([])
-  const [page, setPage] = useState<'cercles' | 'catalogue' | 'profil' | 'commandes' | 'periodes'>('cercles');
+  const [page, setPage] = useState<'cercles' | 'catalogue' | 'profil' | 'commandes' | 'periodes'>('catalogue');
   const [catalogue, setCatalogue] = useState<CatalogueItem[]>([])
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
