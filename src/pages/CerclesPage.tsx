@@ -120,9 +120,10 @@ export default function CerclesPage({ user }: CerclesPageProps) {
     fetchCirclesAndRequests();
   }, [user.id, fetchCirclesAndRequests]);
 
-  // Met à jour le statut des requests si la période est passée en 'ordered'
+  // Met à jour le statut des requests si la période est passée en 'ordered' ou 'closed'
   useEffect(() => {
     // Pour chaque cercle, pour chaque request, si la période est 'ordered' et la request est 'submitted', passer à 'validated'
+    // Si la période est 'ordered' ou 'closed' et toutes les lignes ont qty_validated === 0, passer la request à 'closed'
     Object.values(requestsByCircle).forEach(requests => {
       requests.forEach(async req => {
         if (req.period?.status === 'ordered' && req.status === 'submitted') {
@@ -130,6 +131,15 @@ export default function CerclesPage({ user }: CerclesPageProps) {
             .from('circle_requests')
             .update({ status: 'validated' })
             .eq('id', req.id);
+        }
+        if ((req.period?.status === 'ordered' || req.period?.status === 'closed') && req.lines.length > 0) {
+          const allZero = req.lines.every(l => (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty) === 0);
+          if (allZero && req.status !== 'closed') {
+            await supabase
+              .from('circle_requests')
+              .update({ status: 'closed' })
+              .eq('id', req.id);
+          }
         }
       });
     });
@@ -201,175 +211,188 @@ export default function CerclesPage({ user }: CerclesPageProps) {
               >
                 {selectedTab === idx && (
                   <>
-                    <Typography variant="h6">Commandes du cercle {circle.nom}</Typography>
-                    {/* Sous-totaux par période */}
-                    {(requestsByCircle[circle.id] || []).length > 0 && (
-                      <Box sx={{ mb: 2 }}>
-                        {(() => {
-                          type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
-                          const periodMap: Record<string, { nom: string; status: string; totals: Record<Statut, number> }> = {};
-                          (requestsByCircle[circle.id] || []).forEach(req => {
-                            const pId = req.period?.id || '-';
-                            if (!periodMap[pId]) {
-                              periodMap[pId] = {
-                                nom: req.period?.nom || '-',
-                                status: req.period?.status || '-',
-                                totals: { draft: 0, submitted: 0, validated: 0, closed: 0 }
-                              };
-                            }
-                            // Pour les sous-totaux par période, utiliser qty_validated si elle existe
-                            const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
-                            if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
-                              periodMap[pId].totals[req.status as Statut] += total;
-                            }
-                          });
-                          return Object.entries(periodMap).map(([pid, p]) => (
-                            <Typography key={pid} variant="subtitle2" sx={{ mb: 0.5 }}>
-                              {p.nom} :
-                              <span style={{ color: '#888', marginLeft: 8 }}>brouillon {p.totals.draft.toFixed(2)} €</span>
-                              <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {p.totals.submitted.toFixed(2)} €</span>
-                              <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {p.totals.validated.toFixed(2)} €</span>
-                              <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {p.totals.closed.toFixed(2)} €</span>
-                              <span style={{ color: '#555', marginLeft: 8, fontStyle: 'italic' }}>({periodStatusToLabel(p.status)})</span>
-                            </Typography>
-                          ));
-                        })()}
-                      </Box>
-                    )}
-                    {/* Sous-totaux par cercle (tous statuts confondus) */}
-                    {(requestsByCircle[circle.id] || []).length > 0 && (
-                      <Box sx={{ mb: 2 }}>
-                        {(() => {
-                          type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
-                          const totals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0 };
-                          (requestsByCircle[circle.id] || []).forEach(req => {
-                            // Pour les sous-totaux par cercle (tous statuts confondus), idem
-                            const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
-                            if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
-                              totals[req.status as Statut] += total;
-                            }
-                          });
-                          return (
-                            <Typography variant="subtitle1" sx={{ mt: 1, fontWeight: 600 }}>
-                              Total {circle.nom} :
-                              <span style={{ color: '#888', marginLeft: 8 }}>brouillon {totals.draft.toFixed(2)} €</span>
-                              <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {totals.submitted.toFixed(2)} €</span>
-                              <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {totals.validated.toFixed(2)} €</span>
-                              <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {totals.closed.toFixed(2)} €</span>
-                            </Typography>
-                          );
-                        })()}
-                      </Box>
-                    )}
-                    {/* Bouton pour toutes les requests de la période (si ouverte) */}
-                    {(requestsByCircle[circle.id] || []).length > 0 && (requestsByCircle[circle.id][0]?.period?.id && requestsByCircle[circle.id][0]?.period?.status === 'open') && (
-                      <Box sx={{ mb: 2 }}>
-                        <button
-                          style={{ backgroundColor: '#43a047', color: 'white', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }}
-                          onClick={() => updateAllRequestsStatusForPeriod(
-                            circle.id,
-                            requestsByCircle[circle.id][0].period.id,
-                            'submitted'
+                    {/* 1. Total général du cercle */}
+                    {(requestsByCircle[circle.id] || []).length > 0 && (() => {
+                      type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
+                      const totals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0 };
+                      (requestsByCircle[circle.id] || []).forEach(req => {
+                        const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
+                        if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
+                          totals[req.status as Statut] += total;
+                        }
+                      });
+                      return (
+                        <Typography variant="subtitle1" sx={{ mt: 1, fontWeight: 600, mb: 3 }}>
+                          Total {circle.nom} :
+                          <span style={{ color: '#888', marginLeft: 8 }}>brouillon {totals.draft.toFixed(2)} €</span>
+                          <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {totals.submitted.toFixed(2)} €</span>
+                          <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {totals.validated.toFixed(2)} €</span>
+                          <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {totals.closed.toFixed(2)} €</span>
+                        </Typography>
+                      );
+                    })()}
+
+                    {/* 2. Liste des requêtes groupées par période */}
+                    {(() => {
+                      // Grouper les requests par période
+                      const requests = requestsByCircle[circle.id] || [];
+                      const periods: Record<string, { nom: string; status: string; date_limite?: string; requests: typeof requests }> = {};
+                      requests.forEach(req => {
+                        const pId = req.period?.id || '-';
+                        // On tente de récupérer date_limite si elle existe sur req.period
+                        let date_limite: string | undefined = undefined;
+                        if (req.period && typeof (req.period as Record<string, unknown>).date_limite === 'string') {
+                          date_limite = (req.period as Record<string, string>).date_limite;
+                        }
+                        if (!periods[pId]) {
+                          periods[pId] = {
+                            nom: req.period?.nom || '-',
+                            status: req.period?.status || '-',
+                            date_limite,
+                            requests: []
+                          };
+                        }
+                        periods[pId].requests.push(req);
+                      });
+                      // Tri décroissant par date_limite
+                      const sortedPeriods = Object.entries(periods).sort((a, b) => {
+                        const dateA = a[1].date_limite ? new Date(a[1].date_limite).getTime() : 0;
+                        const dateB = b[1].date_limite ? new Date(b[1].date_limite).getTime() : 0;
+                        return dateB - dateA;
+                      });
+                      return sortedPeriods.map(([pid, p]) => (
+                        <Box key={pid} sx={{ mb: 4 }}>
+                          {/* Sous-titre période */}
+                          <Typography variant="h6" sx={{ mb: 1 }}>{p.nom} <span style={{ color: '#555', fontSize: 15, fontStyle: 'italic' }}>({periodStatusToLabel(p.status)})</span></Typography>
+                          {/* Boutons de statut pour la période si ouverte */}
+                          {p.status === 'open' && (
+                            <Box sx={{ mb: 2 }}>
+                              <button
+                                style={{ backgroundColor: '#43a047', color: 'white', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }}
+                                onClick={() => updateAllRequestsStatusForPeriod(
+                                  circle.id,
+                                  pid,
+                                  'submitted'
+                                )}
+                              >Valider toutes les demandes en attente</button>
+                              <button
+                                style={{ marginLeft: 8 }}
+                                onClick={() => updateAllRequestsStatusForPeriod(
+                                  circle.id,
+                                  pid,
+                                  'draft'
+                                )}
+                              >Remettre toutes en brouillon</button>
+                            </Box>
                           )}
-                        >Valider toutes les demandes en attente</button>
-                        <button
-                          style={{ marginLeft: 8 }}
-                          onClick={() => updateAllRequestsStatusForPeriod(
-                            circle.id,
-                            requestsByCircle[circle.id][0].period.id,
-                            'draft'
-                          )}
-                        >Remettre toutes en brouillon</button>
-                        {/* Détail de la période ciblée */}
-                        <Box sx={{ mt: 1, fontSize: 14, color: '#555' }}>
-                          <strong>Période ciblée :</strong> {requestsByCircle[circle.id][0].period.nom} (statut : {periodStatusToLabel(requestsByCircle[circle.id][0].period.status)})
+                          {/* Tableau des requests de la période */}
+                          <TableContainer component={Paper} sx={{ mt: 1, width: '100%', maxWidth: '1800px', overflowX: 'auto' }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  {/* <TableCell sx={{ minWidth: 100, maxWidth: 140 }}>Période</TableCell> */}
+                                  <TableCell sx={{ minWidth: 70, maxWidth: 100 }}>Statut</TableCell>
+                                  <TableCell sx={{ minWidth: 100, maxWidth: 140 }}>Utilisateur</TableCell>
+                                  <TableCell sx={{ minWidth: 200, maxWidth: 400 }}>Détail</TableCell>
+                                  <TableCell sx={{ minWidth: 100, maxWidth: 140 }}>Action</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {p.requests.map(req => (
+                                  <TableRow key={req.id}>
+                                    {/* <TableCell>{req.period?.nom || '-'}<span style={{ color: '#555', marginLeft: 6, fontSize: 12 }}>({periodStatusToLabel(req.period?.status)})</span></TableCell> */}
+                                    <TableCell>
+                                      <Chip 
+                                        label={statusToLabel(req.status)} 
+                                        sx={{
+                                          backgroundColor: req.status === 'draft' ? '#e0e0e0' // gris
+                                            : req.status === 'submitted' ? '#43a047' // vert
+                                            : req.status === 'validated' ? '#1976d2' // bleu
+                                            : req.status === 'closed' ? '#ff9800' // orange
+                                            : undefined,
+                                          color: req.status === 'draft' ? '#333'
+                                            : req.status === 'submitted' ? 'white'
+                                            : req.status === 'validated' ? 'white'
+                                            : req.status === 'closed' ? 'white'
+                                            : undefined,
+                                          fontWeight: 500
+                                        }}
+                                      />
+                                    </TableCell>
+                                    <TableCell>{req.user_nickname}</TableCell>
+                                    <TableCell>
+                                      {req.lines.length === 0 ? (
+                                        <Typography variant="body2">Aucun article</Typography>
+                                      ) : (
+                                        <Table size="small">
+                                          <TableHead>
+                                            <TableRow>
+                                              <TableCell>Libellé</TableCell>
+                                              <TableCell>Réf.</TableCell>
+                                              <TableCell>Fournisseur</TableCell>
+                                              <TableCell>PU</TableCell>
+                                              <TableCell>Qté</TableCell>
+                                              <TableCell>Total</TableCell>
+                                            </TableRow>
+                                          </TableHead>
+                                          <TableBody>
+                                            {req.lines.map(line => (
+                                              <TableRow key={line.id}>
+                                                <TableCell>{line.articles?.libelle || '-'}</TableCell>
+                                                <TableCell>{line.articles?.ref || '-'}</TableCell>
+                                                <TableCell>{line.articles?.fournisseur || '-'}</TableCell>
+                                                <TableCell>{line.articles?.prix_unitaire?.toFixed(2) || '-'}</TableCell>
+                                                <TableCell>
+                                                  {line.qty}
+                                                  {typeof line.qty_validated === 'number' && line.qty_validated !== line.qty && (
+                                                    <span style={{ color: '#1976d2', marginLeft: 4 }} title="Quantité validée par FinAdmin">→ {line.qty_validated}</span>
+                                                  )}
+                                                </TableCell>
+                                                <TableCell>{line.articles?.prix_unitaire ? (line.articles.prix_unitaire * (typeof line.qty_validated === 'number' ? line.qty_validated : line.qty)).toFixed(2) : '-'}</TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      )}
+                                    </TableCell>
+                                    {/* Action individuelle si période ouverte et utilisateur concerné, et statut modifiable */}
+                                    <TableCell>
+                                      {p.status === 'open' && req.created_by === user.id && (
+                                        req.status === 'draft' ? (
+                                          <button style={{ backgroundColor: '#43a047', color: 'white', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }} onClick={() => updateRequestStatus(req.id, 'submitted')}>Valider</button>
+                                        ) : req.status === 'submitted' ? (
+                                          <button style={{ backgroundColor: '#e0e0e0', color: '#333', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }} onClick={() => updateRequestStatus(req.id, 'draft')}>Remettre en brouillon</button>
+                                        ) : null
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                          {/* Sous-total de la période */}
+                          {p.requests.length > 0 && (() => {
+                            type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
+                            const periodTotals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0 };
+                            p.requests.forEach(req => {
+                              const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
+                              if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
+                                periodTotals[req.status as Statut] += total;
+                              }
+                            });
+                            return (
+                              <Typography variant="subtitle2" sx={{ mt: 1, mb: 2 }}>
+                                Sous-total :
+                                <span style={{ color: '#888', marginLeft: 8 }}>brouillon {periodTotals.draft.toFixed(2)} €</span>
+                                <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {periodTotals.submitted.toFixed(2)} €</span>
+                                <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {periodTotals.validated.toFixed(2)} €</span>
+                                <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {periodTotals.closed.toFixed(2)} €</span>
+                              </Typography>
+                            );
+                          })()}
                         </Box>
-                      </Box>
-                    )}
-                    <TableContainer component={Paper} sx={{ mt: 2, width: '100%', maxWidth: '1800px', overflowX: 'auto' }}>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell sx={{ minWidth: 100, maxWidth: 140 }}>Période</TableCell>
-                            <TableCell sx={{ minWidth: 70, maxWidth: 100 }}>Statut</TableCell>
-                            <TableCell sx={{ minWidth: 100, maxWidth: 140 }}>Utilisateur</TableCell>
-                            <TableCell sx={{ minWidth: 200, maxWidth: 400 }}>Détail</TableCell>
-                            <TableCell sx={{ minWidth: 100, maxWidth: 140 }}>Action</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {(requestsByCircle[circle.id] || []).map(req => (
-                            <TableRow key={req.id}>
-                              <TableCell>{req.period?.nom || '-'}<span style={{ color: '#555', marginLeft: 6, fontSize: 12 }}>({periodStatusToLabel(req.period?.status)})</span></TableCell>
-                              <TableCell>
-                                <Chip 
-                                  label={statusToLabel(req.status)} 
-                                  sx={{
-                                    backgroundColor: req.status === 'draft' ? '#e0e0e0' // gris
-                                      : req.status === 'submitted' ? '#43a047' // vert
-                                      : req.status === 'validated' ? '#1976d2' // bleu
-                                      : req.status === 'closed' ? '#ff9800' // orange
-                                      : undefined,
-                                    color: req.status === 'draft' ? '#333'
-                                      : req.status === 'submitted' ? 'white'
-                                      : req.status === 'validated' ? 'white'
-                                      : req.status === 'closed' ? 'white'
-                                      : undefined,
-                                    fontWeight: 500
-                                  }}
-                                />
-                              </TableCell>
-                              <TableCell>{req.user_nickname}</TableCell>
-                              <TableCell>
-                                {req.lines.length === 0 ? (
-                                  <Typography variant="body2">Aucun article</Typography>
-                                ) : (
-                                  <Table size="small">
-                                    <TableHead>
-                                      <TableRow>
-                                        <TableCell>Libellé</TableCell>
-                                        <TableCell>Réf.</TableCell>
-                                        <TableCell>Fournisseur</TableCell>
-                                        <TableCell>PU</TableCell>
-                                        <TableCell>Qté</TableCell>
-                                        <TableCell>Total</TableCell>
-                                      </TableRow>
-                                    </TableHead>
-                                    <TableBody>
-                                      {req.lines.map(line => (
-                                        <TableRow key={line.id}>
-                                          <TableCell>{line.articles?.libelle || '-'}</TableCell>
-                                          <TableCell>{line.articles?.ref || '-'}</TableCell>
-                                          <TableCell>{line.articles?.fournisseur || '-'}</TableCell>
-                                          <TableCell>{line.articles?.prix_unitaire?.toFixed(2) || '-'}</TableCell>
-                                          <TableCell>
-                                            {line.qty}
-                                            {typeof line.qty_validated === 'number' && line.qty_validated !== line.qty && (
-                                              <span style={{ color: '#1976d2', marginLeft: 4 }} title="Quantité validée par FinAdmin">→ {line.qty_validated}</span>
-                                            )}
-                                          </TableCell>
-                                          <TableCell>{line.articles?.prix_unitaire ? (line.articles.prix_unitaire * (typeof line.qty_validated === 'number' ? line.qty_validated : line.qty)).toFixed(2) : '-'}</TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                )}
-                              </TableCell>
-                              {/* Action individuelle si période ouverte et utilisateur concerné, et statut modifiable */}
-                              <TableCell>
-                                {req.period?.status === 'open' && req.created_by === user.id && (
-                                  req.status === 'draft' ? (
-                                    <button style={{ backgroundColor: '#43a047', color: 'white', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }} onClick={() => updateRequestStatus(req.id, 'submitted')}>Valider</button>
-                                  ) : req.status === 'submitted' ? (
-                                    <button style={{ backgroundColor: '#e0e0e0', color: '#333', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer' }} onClick={() => updateRequestStatus(req.id, 'draft')}>Remettre en brouillon</button>
-                                  ) : null
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
+                      ));
+                    })()}
                   </>
                 )}
               </div>

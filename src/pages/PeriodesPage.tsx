@@ -23,6 +23,8 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
   const [commandeArticles, setCommandeArticles] = useState<ArticleCommande[]>([]); // articles agrégés pour la période
   const [commandeLoading, setCommandeLoading] = useState(false);
   const [commandeQuantites, setCommandeQuantites] = useState<Record<string, number>>({});
+  const [confirmedArticles, setConfirmedArticles] = useState<Record<string, boolean>>({});
+  const [validationWarning, setValidationWarning] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPeriodes();
@@ -84,6 +86,8 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
   async function ouvrirCommandeModal(periodeId: string) {
     setCommandeModalOpen(periodeId);
     setCommandeLoading(true);
+    setConfirmedArticles({});
+    setValidationWarning(null);
     // Récupérer toutes les commandes (circle_requests) pour cette période
     const { data: requests, error } = await supabase
       .from('circle_requests')
@@ -113,40 +117,78 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
     setCommandeLoading(false);
   }
 
+  // Fonction pour confirmer une ligne (article)
+  const confirmerLigne = async (articleId: string) => {
+    const qty = commandeQuantites[articleId] ?? 0;
+    // Met à jour qty_validated pour toutes les lignes de cet article dans la période
+    const { data: requests } = await supabase
+      .from('circle_requests')
+      .select('id, request_lines(id, article_id)')
+      .eq('period_id', commandeModalOpen)
+      .neq('status', 'draft');
+    for (const req of requests || []) {
+      for (const line of req.request_lines || []) {
+        if (line.article_id === articleId) {
+          await supabase
+            .from('request_lines')
+            .update({ qty_validated: qty })
+            .eq('id', line.id);
+        }
+      }
+    }
+    setConfirmedArticles(prev => ({ ...prev, [articleId]: true }));
+  };
+
   // Fonction pour valider la commande (passe la période à 'ordered' et met à jour les quantités validées)
-  async function validerCommande() {
+  async function validerCommande(force?: boolean) {
     if (!commandeModalOpen) return;
     setCommandeLoading(true);
     setError(null); setSuccess(null);
-    // 1. Mettre à jour les quantités validées dans request_lines pour chaque article
+    // 1. Vérifier les lignes non confirmées
+    const nonConfirmes = commandeArticles.filter(a => !confirmedArticles[a.id]);
+    if (nonConfirmes.length > 0 && !force) {
+      setValidationWarning('Attention, les articles suivants n\'ont pas été confirmés : ' + nonConfirmes.map(a => a.libelle).join(', ') + '.\nVous pouvez valider quand même ou annuler pour confirmer les lignes manquantes.');
+      setCommandeLoading(false);
+      return;
+    }
+    // 2. Mettre à jour les quantités validées dans request_lines pour chaque article non confirmé (qty_validated = 0)
     try {
-      // Récupérer toutes les commandes circle_requests de la période
       const { data: requests, error: reqError } = await supabase
         .from('circle_requests')
-        .select('id, request_lines(id, article_id)')
+        .select('id, request_lines(id, article_id, qty_validated)')
         .eq('period_id', commandeModalOpen)
         .neq('status', 'draft');
       if (reqError) throw reqError;
-      // Pour chaque ligne de chaque commande, si l'article est dans la liste, mettre à jour qty_validated
+      // Mettre à jour qty_validated à 0 pour les non confirmées
       for (const req of requests || []) {
         for (const line of req.request_lines || []) {
-          const qte = commandeQuantites[line.article_id];
-          if (typeof qte === 'number') {
+          if (!confirmedArticles[line.article_id]) {
             await supabase
               .from('request_lines')
-              .update({ qty_validated: qte })
+              .update({ qty_validated: 0 })
               .eq('id', line.id);
           }
         }
       }
-      // 2. Mettre à jour la période
+      // Vérifier si toutes les lignes de toutes les commandes sont à 0
+      let allZero = true;
+      for (const req of requests || []) {
+        for (const line of req.request_lines || []) {
+          if ((typeof line.qty_validated === 'number' ? line.qty_validated : commandeQuantites[line.article_id]) > 0) {
+            allZero = false;
+            break;
+          }
+        }
+        if (!allZero) break;
+      }
+      // 3. Mettre à jour la période
       const { error } = await supabase
         .from('order_periods')
-        .update({ status: 'ordered' })
+        .update({ status: allZero ? 'closed' : 'ordered' })
         .eq('id', commandeModalOpen);
       if (error) setError('Erreur lors de la validation de la commande');
       else {
-        setSuccess('Commande validée, la période passe à "ordered"');
+        setSuccess(allZero ? 'Aucune ligne validée, la période est clôturée.' : 'Commande validée, la période passe à "ordered"');
         setCommandeModalOpen(null);
         fetchPeriodes();
       }
@@ -236,9 +278,12 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
         </Table>
       </TableContainer>
       {/* Modale commande */}
-      <Dialog open={!!commandeModalOpen} onClose={() => setCommandeModalOpen(null)} maxWidth="lg" fullWidth>
+      <Dialog open={!!commandeModalOpen} onClose={() => { setCommandeModalOpen(null); setValidationWarning(null); setConfirmedArticles({}); }} maxWidth="lg" fullWidth>
         <DialogTitle>Passer la commande</DialogTitle>
         <DialogContent>
+          {validationWarning && (
+            <Alert severity="warning" sx={{ mb: 2 }}>{validationWarning}</Alert>
+          )}
           {commandeLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box>
           ) : commandeArticles.length === 0 ? (
@@ -281,8 +326,14 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
                       <TableCell>{(art.prix_unitaire * (commandeQuantites[art.id] || art.quantite)).toFixed(2)} €</TableCell>
                       <TableCell>{art.url ? <a href={art.url} target="_blank" rel="noopener noreferrer">Lien</a> : ''}</TableCell>
                       <TableCell>
-                        <Button variant="contained" size="small" color="success" disabled>
-                          Confirmer
+                        <Button
+                          variant={confirmedArticles[art.id] ? "contained" : "outlined"}
+                          size="small"
+                          color={confirmedArticles[art.id] ? "success" : "primary"}
+                          onClick={() => confirmerLigne(art.id)}
+                          disabled={confirmedArticles[art.id]}
+                        >
+                          {confirmedArticles[art.id] ? "Confirmé" : "Confirmer"}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -293,8 +344,16 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCommandeModalOpen(null)}>Annuler</Button>
-          <Button variant="contained" color="primary" onClick={validerCommande}>Valider</Button>
+          <Button onClick={() => { setCommandeModalOpen(null); setValidationWarning(null); setConfirmedArticles({}); }}>Annuler</Button>
+          {validationWarning ? (
+            <Button variant="contained" color="warning" onClick={() => { setValidationWarning(null); validerCommande(true); }}>
+              Valider quand même
+            </Button>
+          ) : (
+            <Button variant="contained" color="primary" onClick={() => validerCommande()}>
+              Valider
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

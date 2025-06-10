@@ -56,7 +56,6 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
   const [userCircles, setUserCircles] = useState<{ id: string; nom: string }[]>([]);
   const [selectedCircle, setSelectedCircle] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [articleToEdit, setArticleToEdit] = useState<CatalogueItem | null>(null);
@@ -81,6 +80,7 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
   const [addArticleSuccess, setAddArticleSuccess] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [deleteInfo, setDeleteInfo] = useState<string | null>(null);
+  const [drawerSuccessMessage, setDrawerSuccessMessage] = useState(false);
 
   // Pagination, tri, recherche, filtre
   const [page, setPage] = useState(0);
@@ -393,8 +393,11 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
         .from('request_lines')
         .insert(requestLines);
       if (linesError) throw linesError;
-      setSubmitSuccess(true);
+      setDrawerSuccessMessage(true); // Afficher le message de succès dans le tiroir
       setArticles([]);
+      setTimeout(() => {
+        setDrawerOpen(false); // Fermer le tiroir après succès
+      }, 1200);
     } catch (error) {
       console.error('Erreur lors de la validation de la commande:', error);
       setSubmitError('Une erreur est survenue lors de la validation de la commande');
@@ -677,7 +680,10 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
       <Drawer
         anchor="right"
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerSuccessMessage(false);
+        }}
       >
         <Box
           sx={{ width: { xs: '100vw', sm: 300 } }}
@@ -689,10 +695,13 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
               <CloseIcon />
             </IconButton>
           </Box>
-          
           {articles.length === 0 ? (
             <Box sx={{ p: 2 }}>
-              <Typography>Aucune demande</Typography>
+              {drawerSuccessMessage ? (
+                <Alert severity="success">Votre commande a été validée avec succès !</Alert>
+              ) : (
+                <Typography>Aucune demande</Typography>
+              )}
             </Box>
           ) : (
             <>
@@ -811,11 +820,6 @@ export default function CataloguePage({ catalogue, setCatalogue, articles, setAr
                   <Typography variant="body2" gutterBottom>
                     Période sélectionnée : {openPeriods.find(p => p.id === selectedPeriodId)?.nom}
                   </Typography>
-                )}
-                {submitSuccess && (
-                  <Alert severity="success" sx={{ mt: 1 }}>
-                    Votre commande a été validée avec succès !
-                  </Alert>
                 )}
                 {submitError && (
                   <Alert severity="error" sx={{ mt: 1 }}>
