@@ -88,7 +88,55 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
         </div>
       )}
       {userProfile && (
-        <p data-testid="profil-nickname">Surnom : <b>{userProfile.nickname || '—'}</b></p>
+        <div style={{ marginBottom: 16 }}>
+          <p data-testid="profil-nickname">
+            Surnom :
+            <input
+              type="text"
+              value={userProfile.nickname || ''}
+              onChange={async (e) => {
+                const newNickname = e.target.value;
+                // Met à jour en base
+                const { error } = await supabase
+                  .from('user_profiles')
+                  .update({ nickname: newNickname })
+                  .eq('user_id', user.id);
+                if (!error) {
+                  // Met à jour localement
+                  userProfile.nickname = newNickname;
+                }
+              }}
+              style={{ marginLeft: 8, fontWeight: 'bold', fontSize: 16 }}
+            />
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <img
+              data-testid="profil-avatar"
+              src={userProfile.avatar_url ? userProfile.avatar_url : ('https://ui-avatars.com/api/?name=' + encodeURIComponent(userProfile.nickname || user.email || ''))}
+              alt="avatar"
+              style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', border: '1px solid #ccc' }}
+            />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                // Upload sur Supabase Storage (bucket 'avatars')
+                const fileExt = file.name.split('.').pop();
+                const filePath = `${user.id}_${Date.now()}.${fileExt}`;
+                const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
+                if (!uploadError) {
+                  const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+                  const publicUrl = data.publicUrl;
+                  // Met à jour l'URL en base
+                  await supabase.from('user_profiles').update({ avatar_url: publicUrl }).eq('user_id', user.id);
+                  userProfile.avatar_url = publicUrl;
+                }
+              }}
+            />
+          </div>
+        </div>
       )}
       {/* Cercles d'appartenance */}
       <div>
