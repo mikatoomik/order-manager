@@ -25,6 +25,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
   const [commandeQuantites, setCommandeQuantites] = useState<Record<string, number>>({});
   const [confirmedArticles, setConfirmedArticles] = useState<Record<string, boolean>>({});
   const [validationWarning, setValidationWarning] = useState<string | null>(null);
+  const [commandeLivraisons, setCommandeLivraisons] = useState<Record<string, string>>({}); // date de livraison estimée par article
 
   useEffect(() => {
     fetchPeriodes();
@@ -114,6 +115,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
     const articles = Object.values(articlesMap);
     setCommandeArticles(articles);
     setCommandeQuantites(Object.fromEntries(articles.map(a => [a.id, a.quantite])));
+    setCommandeLivraisons(Object.fromEntries(articles.map(a => [a.id, ''])));
     setCommandeLoading(false);
   }
 
@@ -131,7 +133,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
         if (line.article_id === articleId) {
           await supabase
             .from('request_lines')
-            .update({ qty_validated: qty })
+            .update({ qty_validated: qty, delivery_date: commandeLivraisons[articleId] || null })
             .eq('id', line.id);
         }
       }
@@ -165,7 +167,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
           if (!confirmedArticles[line.article_id]) {
             await supabase
               .from('request_lines')
-              .update({ qty_validated: 0 })
+              .update({ qty_validated: 0, delivery_date: null })
               .eq('id', line.id);
           }
         }
@@ -300,6 +302,7 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
                     <TableCell>Quantité</TableCell>
                     <TableCell>Total</TableCell>
                     <TableCell>Lien</TableCell>
+                    <TableCell>Date livraison estimée</TableCell>
                     <TableCell>Confirmer</TableCell>
                   </TableRow>
                 </TableHead>
@@ -325,6 +328,16 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
                       </TableCell>
                       <TableCell>{(art.prix_unitaire * (commandeQuantites[art.id] || art.quantite)).toFixed(2)} €</TableCell>
                       <TableCell>{art.url ? <a href={art.url} target="_blank" rel="noopener noreferrer">Lien</a> : ''}</TableCell>
+                      <TableCell>
+                        <TextField
+                          type="date"
+                          size="small"
+                          value={commandeLivraisons[art.id] || ''}
+                          onChange={e => setCommandeLivraisons(q => ({ ...q, [art.id]: e.target.value }))}
+                          inputProps={{ style: { width: 130 } }}
+                          sx={{ minWidth: 130 }}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Button
                           variant={confirmedArticles[art.id] ? "contained" : "outlined"}

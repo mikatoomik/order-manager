@@ -8,9 +8,10 @@ import EditIcon from '@mui/icons-material/Edit';
 interface ProfilPageProps {
   user: User;
   userProfile: UserProfile | null;
+  setUserProfile: (profile: UserProfile | null) => void;
 }
 
-export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
+export default function ProfilPage({ user, userProfile, setUserProfile }: ProfilPageProps) {
   const [allCircles, setAllCircles] = useState<UserCircle[]>([]);
   const [selectedCircles, setSelectedCircles] = useState<UserCircle[]>([]);
   const [editOpen, setEditOpen] = useState(false);
@@ -92,13 +93,11 @@ export default function ProfilPage({ user, userProfile }: ProfilPageProps) {
   const handleSaveProfile = async () => {
     setSaving(true);
     await supabase.from('user_profiles').update({ nickname: editNickname, avatar_url: editAvatar }).eq('user_id', user.id);
+    // Rafraîchir le profil depuis Supabase
+    const { data, error } = await supabase.from('user_profiles').select('avatar_url, nickname').eq('user_id', user.id).single();
+    if (!error) setUserProfile(data ?? { avatar_url: null, nickname: null });
     setEditOpen(false);
     setSaving(false);
-    // Rafraîchir l'affichage local
-    if (userProfile) {
-      userProfile.nickname = editNickname;
-      userProfile.avatar_url = editAvatar;
-    }
   };
 
   return (

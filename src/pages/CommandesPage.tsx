@@ -37,6 +37,7 @@ interface CircleOrder {
     fournisseur: string;
     prix_unitaire: number;
     total_qty: number;
+    delivery_date?: string | null; // Ajout de la date de livraison
   }[];
 }
 
@@ -150,6 +151,7 @@ export default function CommandesPage() {
             qty,
             qty_validated,
             article_id,
+            delivery_date,
             articles:article_id (id, libelle, ref, fournisseur, prix_unitaire)
           `)
           .eq('request_id', request.id);
@@ -159,9 +161,9 @@ export default function CommandesPage() {
           requestLines.forEach(line => {
             const article = Array.isArray(line.articles) ? line.articles[0] : line.articles;
             const qtyToUse = typeof line.qty_validated === 'number' ? line.qty_validated : line.qty;
-            const existingArticleIndex = ordersByCircle[circleId].articles.findIndex(a => a.article_id === line.article_id);
+            const existingArticleIndex = ordersByCircle[circleId].articles.findIndex(a => a.article_id === line.article_id && a.delivery_date === line.delivery_date);
             if (existingArticleIndex !== -1) {
-              // Si l'article existe déjà, augmenter la quantité
+              // Si l'article existe déjà (même id et même date de livraison), augmenter la quantité
               ordersByCircle[circleId].articles[existingArticleIndex].total_qty += qtyToUse;
             } else {
               // Sinon, ajouter un nouvel article
@@ -171,7 +173,8 @@ export default function CommandesPage() {
                 ref: article.ref,
                 fournisseur: article.fournisseur,
                 prix_unitaire: article.prix_unitaire,
-                total_qty: qtyToUse
+                total_qty: qtyToUse,
+                delivery_date: line.delivery_date || null
               });
             }
           });
@@ -254,17 +257,23 @@ export default function CommandesPage() {
                               <TableCell>Prix unitaire</TableCell>
                               <TableCell>Quantité</TableCell>
                               <TableCell>Total</TableCell>
+                              {po.period.status === 'ordered' && (
+                                <TableCell>Date livraison estimée</TableCell>
+                              )}
                             </TableRow>
                           </TableHead>
                           <TableBody>
                             {order.articles.map(article => (
-                              <TableRow key={article.article_id}>
+                              <TableRow key={article.article_id + (article.delivery_date || '')}>
                                 <TableCell>{article.ref}</TableCell>
                                 <TableCell>{article.libelle}</TableCell>
                                 <TableCell>{article.fournisseur}</TableCell>
                                 <TableCell>{article.prix_unitaire} €</TableCell>
                                 <TableCell>{article.total_qty}</TableCell>
                                 <TableCell>{(article.prix_unitaire * article.total_qty).toFixed(2)} €</TableCell>
+                                {po.period.status === 'ordered' && (
+                                  <TableCell>{article.delivery_date ? new Date(article.delivery_date).toLocaleDateString('fr-FR') : '-'}</TableCell>
+                                )}
                               </TableRow>
                             ))}
                           </TableBody>

@@ -110,6 +110,31 @@ function App() {
     }
   }, [user]);
 
+  // Création automatique du user_profile à la première connexion
+  useEffect(() => {
+    if (user && user.email) {
+      supabase
+        .from('user_profiles')
+        .select('nickname')
+        .eq('user_id', user.id)
+        .single()
+        .then(async ({ data, error }) => {
+          if (!data && !error) {
+            // Récupère le display name et l'avatar Google si dispo
+            const nickname = user.user_metadata?.full_name || user.email;
+            let avatar_url = null;
+            if (user.user_metadata?.avatar_url) {
+              avatar_url = user.user_metadata.avatar_url;
+            } else if (user.user_metadata?.picture) {
+              avatar_url = user.user_metadata.picture;
+            }
+            await supabase.from('user_profiles').insert({ user_id: user.id, nickname, avatar_url });
+            setUserProfile({ avatar_url, nickname });
+          }
+        });
+    }
+  }, [user, setUserProfile]);
+
   // Gestion Google Auth
   const handleGoogleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -182,6 +207,7 @@ function App() {
               <ProfilPage
                 user={user}
                 userProfile={userProfile}
+                setUserProfile={setUserProfile}
               />
             )}
             {page === 'commandes' && (
