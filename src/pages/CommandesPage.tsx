@@ -69,7 +69,7 @@ export default function CommandesPage() {
       if (periodsData) {
         for (const period of periodsData) {
           const { circleOrders, total } = await fetchOrdersForPeriod(period.id);
-          results.push({ period, circleOrders, total });
+          results.push({ period, circleOrders, total, status: period.status });
         }
       }
 
@@ -98,7 +98,7 @@ export default function CommandesPage() {
       if (periodsData) {
         for (const period of periodsData) {
           const { circleOrders, total } = await fetchOrdersForPeriod(period.id);
-          results.push({ period, circleOrders, total });
+          results.push({ period, circleOrders, total, status: period.status });
         }
       }
 
