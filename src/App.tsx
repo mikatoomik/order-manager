@@ -10,23 +10,35 @@ import CommandesPage from './pages/CommandesPage';
 import PeriodesPage from './pages/PeriodesPage';
 import CerclesPage from './pages/CerclesPage';
 import CataloguePage from './pages/CataloguePage';
+import ReceptionCommandePage from './pages/ReceptionCommandePage';
+import type { Period } from './utils/periodUtils';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
 import { Button, Container, Box, Typography, AppBar, Toolbar, BottomNavigation, BottomNavigationAction } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import { createNextPeriodIfNeeded } from './utils/periodUtils';
+import dayjs from 'dayjs';
 
 function App() {
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [articles, setArticles] = useState<CartItem[]>([])
-  const [page, setPage] = useState<'cercles' | 'catalogue' | 'profil' | 'commandes' | 'periodes'>('catalogue');
+  const [page, setPage] = useState<'cercles' | 'catalogue' | 'profil' | 'commandes' | 'periodes' | 'reception'>('catalogue');
   const [catalogue, setCatalogue] = useState<CatalogueItem[]>([])
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isFinAdmin, setIsFinAdmin] = useState(false);
+  const [orderedPeriods, setOrderedPeriods] = useState<Period[]>([]);
+  const [showReception, setShowReception] = useState(false);
+  const [receptionModalOpen, setReceptionModalOpen] = useState(false);
+  const [receptionDates, setReceptionDates] = useState<{ date: string, periods: Period[] }[]>([]);
+  const [selectedReceptionDate, setSelectedReceptionDate] = useState<string | null>(null);
 
   // Détection de l'utilisateur connecté
   useEffect(() => {
@@ -146,6 +158,22 @@ function App() {
     if (error) setAuthMessage("Erreur lors de la connexion Google : " + error.message);
   };
 
+  // Charger les périodes 'ordered' pour l'onglet Réception
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('order_periods')
+        .select('*')
+        .eq('status', 'ordered')
+        .order('date_limite', { ascending: false })
+        .then(({ data }) => {
+          setOrderedPeriods(data || []);
+          setShowReception((data || []).length > 0);
+        });
+    }
+  }, [user]);
+
+  // Ajout de l'onglet Réception si besoin
   const pages = [
     { label: 'Cercles', value: 'cercles', icon: <RestoreIcon /> },
     { label: 'Catalogue', value: 'catalogue', icon: <FavoriteIcon /> },
@@ -155,6 +183,88 @@ function App() {
   if (isFinAdmin) {
     pages.splice(3, 0, { label: 'Périodes', value: 'periodes', icon: <ListAltIcon /> });
   }
+  if (showReception) {
+    pages.push({ label: 'Réception', value: 'reception', icon: <ListAltIcon /> });
+  }
+
+  // Fonction pour ouvrir la modale de sélection par date (optionnel: filtrer par période)
+  const openReceptionModal = async (periodId?: string) => {
+    // Récupérer toutes les dates de livraison estimées pour les périodes ordered (ou une période précise)
+    let periodsToFetch = orderedPeriods;
+    if (periodId) {
+      periodsToFetch = orderedPeriods.filter(p => p.id === periodId);
+    }
+    if (periodsToFetch.length === 0) return;
+    // Récupérer toutes les request_lines avec delivery_date pour ces périodes
+    const { data: requests } = await supabase
+      .from('circle_requests')
+      .select('id, period_id, request_lines(id, delivery_date)')
+      .in('period_id', periodsToFetch.map(p => p.id));
+    // Extraire toutes les dates distinctes et les périodes associées
+    const dateMap: Record<string, Set<string>> = {};
+    (requests || []).forEach(req => {
+      (req.request_lines || []).forEach(line => {
+        if (line.delivery_date) {
+          if (!dateMap[line.delivery_date]) dateMap[line.delivery_date] = new Set();
+          dateMap[line.delivery_date].add(req.period_id);
+        }
+      });
+    });
+    // Générer la liste des dates avec les périodes associées
+    const dates = Object.entries(dateMap).map(([date, periodIds]) => ({
+      date,
+      periods: orderedPeriods.filter(p => periodIds.has(p.id))
+    })).sort((a, b) => a.date.localeCompare(b.date));
+    setReceptionDates(dates);
+    setReceptionModalOpen(true);
+  };
+
+  // Ouvrir la modale depuis le menu réception
+  useEffect(() => {
+    if (page === 'reception' && showReception) {
+      openReceptionModal();
+    }
+    // eslint-disable-next-line
+  }, [page, showReception, orderedPeriods]);
+
+  // Gestion navigation vers la page de réception
+  useEffect(() => {
+    if (page === 'reception' && showReception) {
+      if (orderedPeriods.length === 1) {
+        setSelectedReceptionDate(orderedPeriods[0].date_limite);
+      } else if (orderedPeriods.length > 1) {
+        setReceptionModalOpen(true);
+      }
+    }
+  }, [page, showReception, orderedPeriods]);
+
+  // Fonction pour gérer la demande de réception depuis CommandesPage
+  const handleReceptionRequest = async (periodId: string) => {
+    // Récupérer toutes les request_lines avec delivery_date pour cette période
+    const { data: requests } = await supabase
+      .from('circle_requests')
+      .select('id, request_lines(id, delivery_date)')
+      .eq('period_id', periodId);
+    // Extraire toutes les dates distinctes
+    const dateSet = new Set<string>();
+    (requests || []).forEach(req => {
+      (req.request_lines || []).forEach(line => {
+        if (line.delivery_date) dateSet.add(line.delivery_date);
+      });
+    });
+    const dates = Array.from(dateSet);
+    if (dates.length === 0) {
+      setSelectedReceptionDate(null);
+      setPage('reception');
+    } else if (dates.length === 1) {
+      setSelectedReceptionDate(dates[0]);
+      setReceptionDates([]); // <-- vide la liste pour éviter la modale
+      setReceptionModalOpen(false);
+      setPage('reception');
+    } else {
+      await openReceptionModal(periodId);
+    }
+  };
 
   return (
     <>
@@ -211,19 +321,44 @@ function App() {
               />
             )}
             {page === 'commandes' && (
-              <CommandesPage />
+              <CommandesPage onReceptionRequest={handleReceptionRequest} />
             )}
             {isFinAdmin && page === 'periodes' && (
               <PeriodesPage user={user} />
             )}
+            {user && selectedReceptionDate && page === 'reception' && (
+              <ReceptionCommandePage user={user} deliveryDate={selectedReceptionDate} />
+            )}
           </>
         )}
+        <Dialog open={receptionModalOpen} onClose={() => { setReceptionModalOpen(false); setPage('catalogue'); }}>
+          <DialogTitle>Sélectionnez la date de livraison à réceptionner</DialogTitle>
+          <DialogContent>
+            {receptionDates.length === 0 && <Typography>Aucune livraison à réceptionner.</Typography>}
+            {receptionDates.map(({ date, periods }) => (
+              <Button key={date} onClick={() => {
+                setSelectedReceptionDate(date);
+                setReceptionModalOpen(false);
+                setPage('reception');
+              }} style={{ margin: 8 }} variant="outlined">
+                {dayjs(date).format('DD/MM/YYYY')}<br />
+                <span style={{ fontSize: '0.8em', color: '#888' }}>
+                  {periods.map(p => p.nom).join(', ')}
+                </span>
+              </Button>
+            ))}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => { setReceptionModalOpen(false); setPage('catalogue'); }}>Annuler</Button>
+          </DialogActions>
+        </Dialog>
       </Container>
       <AppBar position="fixed" style={{ top: 'auto', bottom: 0 }}>
         <BottomNavigation
           value={page}
           onChange={(_event, newValue) => {
             setPage(newValue);
+            if (newValue !== 'reception') setSelectedReceptionDate(null);
           }}
           showLabels
         >

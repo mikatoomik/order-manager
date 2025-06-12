@@ -121,23 +121,64 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
 
   // Fonction pour confirmer une ligne (article)
   const confirmerLigne = async (articleId: string) => {
-    const qty = commandeQuantites[articleId] ?? 0;
-    // Met à jour qty_validated pour toutes les lignes de cet article dans la période
+    const qtyAjustee = commandeQuantites[articleId] ?? 0;
+    const qtyOriginale = commandeArticles.find(a => a.id === articleId)?.quantite ?? 0;
+    
+    // Calculer le ratio d'ajustement
+    const ratio = qtyOriginale > 0 ? qtyAjustee / qtyOriginale : 0;
+    
+    // Récupérer toutes les lignes de commande pour cet article
     const { data: requests } = await supabase
       .from('circle_requests')
-      .select('id, request_lines(id, article_id)')
+      .select('id, request_lines(id, article_id, qty)')
       .eq('period_id', commandeModalOpen)
       .neq('status', 'draft');
+    
+    // Garder une trace des quantités déjà allouées
+    let qtyRestante = qtyAjustee;
+    const lignes = [];
+    
+    // Collecter toutes les lignes concernées
     for (const req of requests || []) {
       for (const line of req.request_lines || []) {
         if (line.article_id === articleId) {
-          await supabase
-            .from('request_lines')
-            .update({ qty_validated: qty, delivery_date: commandeLivraisons[articleId] || null })
-            .eq('id', line.id);
+          lignes.push({
+            id: line.id,
+            qty: line.qty
+          });
         }
       }
     }
+    
+    // Trier les lignes par quantité (optionnel, pour prioriser les plus grandes commandes)
+    lignes.sort((a, b) => b.qty - a.qty);
+    
+    // Distribuer proportionnellement la quantité ajustée
+    for (let i = 0; i < lignes.length; i++) {
+      const ligne = lignes[i];
+      let qtyValidee;
+      
+      if (i === lignes.length - 1) {
+        // Dernière ligne: attribuer le reste pour éviter les erreurs d'arrondi
+        qtyValidee = qtyRestante;
+      } else {
+        // Calculer la quantité proportionnelle
+        qtyValidee = Math.round(ligne.qty * ratio);
+        // S'assurer qu'on ne dépasse pas la quantité restante
+        qtyValidee = Math.min(qtyValidee, qtyRestante);
+        qtyRestante -= qtyValidee;
+      }
+      
+      // Mettre à jour la ligne
+      await supabase
+        .from('request_lines')
+        .update({ 
+          qty_validated: qtyValidee, 
+          delivery_date: commandeLivraisons[articleId] || null 
+        })
+        .eq('id', ligne.id);
+    }
+    
     setConfirmedArticles(prev => ({ ...prev, [articleId]: true }));
   };
 
@@ -245,7 +286,6 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
               <TableCell>Date limite</TableCell>
               <TableCell>État</TableCell>
               {isFinAdmin && <TableCell>Actions</TableCell>}
-              {isFinAdmin && <TableCell>Commande</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -256,17 +296,6 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
                   <TableCell>{p.nom}</TableCell>
                   <TableCell>{p.date_limite}</TableCell>
                   <TableCell>{periodStatusToLabel(p.status)}</TableCell>
-                  {isFinAdmin && (
-                    <TableCell>
-                      <Select
-                        value={p.status}
-                        onChange={e => changerEtat(p.id, e.target.value)}
-                        size="small"
-                      >
-                        {ETATS.map(etat => <MenuItem key={etat} value={etat}>{periodStatusToLabel(etat)}</MenuItem>)}
-                      </Select>
-                    </TableCell>
-                  )}
                   {isFinAdmin && p.status === 'open' && (
                     <TableCell>
                       <Button variant="outlined" size="small" onClick={() => ouvrirCommandeModal(p.id)}>

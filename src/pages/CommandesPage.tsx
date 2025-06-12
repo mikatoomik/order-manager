@@ -12,11 +12,13 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  CircularProgress
+  CircularProgress,
+  Button
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { supabase } from '../supabaseClient';
 import { getCurrentPeriodRecord } from '../utils/periodUtils';
+import { useNavigate } from 'react-router-dom';
 
 // Interfaces pour les données retournées par Supabase
 
@@ -48,9 +50,14 @@ interface PeriodOrders {
   status: Period['status'];
 }
 
-export default function CommandesPage() {
+interface CommandesPageProps {
+  onReceptionRequest?: (periodId: string) => void;
+}
+
+export default function CommandesPage({ onReceptionRequest }: CommandesPageProps) {
   const [periodOrders, setPeriodOrders] = useState<PeriodOrders[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     async function fetchPeriodsAndOrders() {
@@ -235,6 +242,11 @@ export default function CommandesPage() {
                 <Typography variant="h5" sx={{ mb: 2 }} data-testid="period-total">
                   {po.period.nom} - {po.total.toFixed(2)} € - {getStatusLabel(po.period.status)}
                 </Typography>
+                {po.period.status === 'ordered' && (
+                  <Button variant="contained" color="primary" sx={{ mb: 2 }} onClick={() => onReceptionRequest ? onReceptionRequest(po.period.id) : navigate(`/reception/${po.period.id}`)}>
+                    Réceptionner la commande
+                  </Button>
+                )}
                 {po.circleOrders.map(order => (
                   <Accordion key={order.circle_id} sx={{ mb: 2 }}>
                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
