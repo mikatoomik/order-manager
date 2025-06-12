@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import type { User } from '@supabase/supabase-js';
@@ -41,7 +41,7 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
   const [infos, setInfos] = useState<Record<string, { status: ReceptionStatus; qty: number; comment: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [periods, setPeriods] = useState<Record<string, { id: string; nom: string }>>({});
+  // const [periods, setPeriods] = useState<Record<string, { id: string; nom: string }>>({});
 
   /* ------------------------------------------------------------------
    * CHARGEMENT DES ARTICLES A RECEPTIONNER
@@ -63,7 +63,7 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
 
       const periodIds = periodsData.map(p => p.id);
       const periodsMap = Object.fromEntries(periodsData.map(p => [p.id, p]));
-      setPeriods(periodsMap);
+      // setPeriods(periodsMap);
       if (!periodIds.length) {
         setLoading(false);
         return;
@@ -203,13 +203,13 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
         const { data: reqLines } = await supabase
           .from('request_lines')
           .select('reception_status, circle_requests!inner(period_id)')
-          .eq('request_id', reqId);
+          .eq('request_id', reqId)
+          .single();
 
-        const statuses = reqLines!.map(r => r.reception_status);
-        const periodId = reqLines![0].circle_requests.period_id;
-        const allTotal = statuses.every(s => s === 'totaly');
-        const allNone = statuses.every(s => s === 'none');
-        const hasPartial = statuses.some(s => s === 'partialy');
+        const periodId = reqLines!.circle_requests[0].period_id;
+        const allTotal = reqLines!.reception_status === 'totaly';
+        const allNone = reqLines!.reception_status === 'none';
+        const hasPartial = reqLines!.reception_status === 'partialy';
 
         let newReqStatus: string;
         if (allTotal) newReqStatus = 'closed';
@@ -232,9 +232,13 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
 
       setSuccess('Réception enregistrée.');
       setTimeout(() => navigate('/commandes'), 1500);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err.message ?? 'Erreur lors de la validation');
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Erreur lors de la validation');
+      }
     } finally {
       setLoading(false);
     }

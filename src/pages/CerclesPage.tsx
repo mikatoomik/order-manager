@@ -187,39 +187,41 @@ export default function CerclesPage({ user }: CerclesPageProps) {
     fetchCirclesAndRequests();
   };
 
-    const updateOrDeleteLine = async (lineId: string, newQty: number) => {
-      if (newQty === 0) {
-        const ok = window.confirm(
-          "Mettre la quantité à 0 supprimera cette ligne. Continuer ?"
-        );
-        if (!ok) return;
-        await supabase.from("request_lines").delete().eq("id", lineId);
-      } else {
-        await supabase.from("request_lines").update({ qty: newQty }).eq("id", lineId);
-      }
-      fetchCirclesAndRequests();               // rafraîchir une fois
+   const updateOrDeleteLine = async (lineId: string, newQty: number) => {
+     if (newQty === 0) {
+       const ok = window.confirm(
+         "Mettre la quantité à 0 supprimera cette ligne. Continuer ?"
+       );
+       if (!ok) return;
+
+       // Récupérer le request_id avant de supprimer la ligne
+       const { data: lineData } = await supabase
+         .from("request_lines")
+         .select("request_id")
+         .eq("id", lineId)
+         .single();
+
+       if (lineData) {
+         // Supprimer la ligne
+         await supabase.from("request_lines").delete().eq("id", lineId);
+         
+         // Vérifier s'il reste des lignes pour ce request_id
+         const { data: remainingLines } = await supabase
+           .from("request_lines")
+           .select("id")
+           .eq("request_id", lineData.request_id);
+
+         if (remainingLines?.length === 0) {
+           // Supprimer le circle_request correspondant
+           await supabase.from("circle_requests").delete().eq("id", lineData.request_id);
+         }
+       }
+     } else {
+       await supabase.from("request_lines").update({ qty: newQty }).eq("id", lineId);
+     }
+     fetchCirclesAndRequests();               // rafraîchir une fois
     };
-    const patchLineInState = (
-      circleId: string,
-      requestId: string,
-      lineId: string,
-      newQty: number | null      //  null  ⇒ on retire la ligne
-    ) =>
-      setRequestsByCircle(prev => {
-        const clone = { ...prev };
-        clone[circleId] = clone[circleId].flatMap(r => {
-          if (r.id !== requestId) return r;
 
-          const newLines = newQty === null
-            ? r.lines.filter(l => l.id !== lineId)
-            : r.lines.map(l => (l.id === lineId ? { ...l, qty: newQty } : l));
-
-          // si plus aucune ligne ⇒ on retire la request
-          if (newLines.length === 0) return [];
-          return { ...r, lines: newLines };
-        });
-        return clone;
-      });
 
 
   return (
@@ -394,14 +396,11 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                                                       size="small"
                                                       defaultValue={line.qty}          // ← champ non « contrôlé »
                                                       inputProps={{ min: 0, style: { width: 70 } }}
-                                                      onChange={e => {
-                                                        const v = Math.max(0, Number(e.target.value));
-                                                        patchLineInState(circle.id, req.id, line.id, v);   // ← met à jour l’état local
-                                                      }}
                                                       onBlur={(e) => {
                                                         const v = Math.max(0, Number(e.target.value));
+                                                        console.log(`onBlur déclenché avec la quantité : ${v}`);
                                                         if (v !== line.qty) {
-                                                          updateOrDeleteLine(line.id, v);   // on ne rafraîchit qu’après coup
+                                                          updateOrDeleteLine(line.id, v); 
                                                         }
                                                       }}
                                                     />

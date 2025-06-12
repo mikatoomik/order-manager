@@ -11,18 +11,12 @@ import PeriodesPage from './pages/PeriodesPage';
 import CerclesPage from './pages/CerclesPage';
 import CataloguePage from './pages/CataloguePage';
 import ReceptionCommandePage from './pages/ReceptionCommandePage';
-import type { Period } from './utils/periodUtils';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
 import { Button, Container, Box, Typography, AppBar, Toolbar, BottomNavigation, BottomNavigationAction } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import { createNextPeriodIfNeeded } from './utils/periodUtils';
-import dayjs from 'dayjs';
 
 function App() {
   const [showLogin, setShowLogin] = useState(true);
@@ -34,11 +28,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isFinAdmin, setIsFinAdmin] = useState(false);
-  const [orderedPeriods, setOrderedPeriods] = useState<Period[]>([]);
   const [showReception, setShowReception] = useState(false);
-  const [receptionModalOpen, setReceptionModalOpen] = useState(false);
-  const [receptionDates, setReceptionDates] = useState<{ date: string, periods: Period[] }[]>([]);
-  const [selectedReceptionDate, setSelectedReceptionDate] = useState<string | null>(null);
 
   // Détection de l'utilisateur connecté
   useEffect(() => {
@@ -167,7 +157,7 @@ function App() {
         .eq('status', 'ordered')
         .order('date_limite', { ascending: false })
         .then(({ data }) => {
-          setOrderedPeriods(data || []);
+          // setOrderedPeriods(data || []);
           setShowReception((data || []).length > 0);
         });
     }
@@ -190,16 +180,7 @@ function App() {
   const handleReceptionRequest = () => {
     setPage('reception');
   };
-  // Gestion navigation vers la page de réception
-  useEffect(() => {
-    if (page === 'reception' && showReception) {
-      if (orderedPeriods.length === 1) {
-        setSelectedReceptionDate(orderedPeriods[0].date_limite);
-      } else if (orderedPeriods.length > 1) {
-        setReceptionModalOpen(true);
-      }
-    }
-  }, [page, showReception, orderedPeriods]);
+
 
   return (
     <>
@@ -273,7 +254,6 @@ function App() {
           value={page}
           onChange={(_event, newValue) => {
             setPage(newValue);
-            if (newValue !== 'reception') setSelectedReceptionDate(null);
           }}
           showLabels
         >
