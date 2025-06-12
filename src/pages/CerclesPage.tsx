@@ -159,7 +159,9 @@ export default function CerclesPage({ user }: CerclesPageProps) {
       case 'draft': return 'En attente';
       case 'submitted': return 'Envoyée';
       case 'validated': return 'Commandée';
-      case 'closed': return 'Annulée';
+      case 'closed': return 'Reçue';
+      case 'waiting': return 'En attente';
+      case 'canceled': return 'Annulée';
       default: return status;
     }
   };

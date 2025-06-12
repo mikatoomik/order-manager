@@ -187,46 +187,9 @@ function App() {
     pages.push({ label: 'Réception', value: 'reception', icon: <ListAltIcon /> });
   }
 
-  // Fonction pour ouvrir la modale de sélection par date (optionnel: filtrer par période)
-  const openReceptionModal = async (periodId?: string) => {
-    // Récupérer toutes les dates de livraison estimées pour les périodes ordered (ou une période précise)
-    let periodsToFetch = orderedPeriods;
-    if (periodId) {
-      periodsToFetch = orderedPeriods.filter(p => p.id === periodId);
-    }
-    if (periodsToFetch.length === 0) return;
-    // Récupérer toutes les request_lines avec delivery_date pour ces périodes
-    const { data: requests } = await supabase
-      .from('circle_requests')
-      .select('id, period_id, request_lines(id, delivery_date)')
-      .in('period_id', periodsToFetch.map(p => p.id));
-    // Extraire toutes les dates distinctes et les périodes associées
-    const dateMap: Record<string, Set<string>> = {};
-    (requests || []).forEach(req => {
-      (req.request_lines || []).forEach(line => {
-        if (line.delivery_date) {
-          if (!dateMap[line.delivery_date]) dateMap[line.delivery_date] = new Set();
-          dateMap[line.delivery_date].add(req.period_id);
-        }
-      });
-    });
-    // Générer la liste des dates avec les périodes associées
-    const dates = Object.entries(dateMap).map(([date, periodIds]) => ({
-      date,
-      periods: orderedPeriods.filter(p => periodIds.has(p.id))
-    })).sort((a, b) => a.date.localeCompare(b.date));
-    setReceptionDates(dates);
-    setReceptionModalOpen(true);
+  const handleReceptionRequest = () => {
+    setPage('reception');
   };
-
-  // Ouvrir la modale depuis le menu réception
-  useEffect(() => {
-    if (page === 'reception' && showReception) {
-      openReceptionModal();
-    }
-    // eslint-disable-next-line
-  }, [page, showReception, orderedPeriods]);
-
   // Gestion navigation vers la page de réception
   useEffect(() => {
     if (page === 'reception' && showReception) {
@@ -237,34 +200,6 @@ function App() {
       }
     }
   }, [page, showReception, orderedPeriods]);
-
-  // Fonction pour gérer la demande de réception depuis CommandesPage
-  const handleReceptionRequest = async (periodId: string) => {
-    // Récupérer toutes les request_lines avec delivery_date pour cette période
-    const { data: requests } = await supabase
-      .from('circle_requests')
-      .select('id, request_lines(id, delivery_date)')
-      .eq('period_id', periodId);
-    // Extraire toutes les dates distinctes
-    const dateSet = new Set<string>();
-    (requests || []).forEach(req => {
-      (req.request_lines || []).forEach(line => {
-        if (line.delivery_date) dateSet.add(line.delivery_date);
-      });
-    });
-    const dates = Array.from(dateSet);
-    if (dates.length === 0) {
-      setSelectedReceptionDate(null);
-      setPage('reception');
-    } else if (dates.length === 1) {
-      setSelectedReceptionDate(dates[0]);
-      setReceptionDates([]); // <-- vide la liste pour éviter la modale
-      setReceptionModalOpen(false);
-      setPage('reception');
-    } else {
-      await openReceptionModal(periodId);
-    }
-  };
 
   return (
     <>
@@ -326,32 +261,12 @@ function App() {
             {isFinAdmin && page === 'periodes' && (
               <PeriodesPage user={user} />
             )}
-            {user && selectedReceptionDate && page === 'reception' && (
-              <ReceptionCommandePage user={user} deliveryDate={selectedReceptionDate} />
+            {user && page === 'reception' && (
+              <ReceptionCommandePage user={user} />
             )}
           </>
         )}
-        <Dialog open={receptionModalOpen} onClose={() => { setReceptionModalOpen(false); setPage('catalogue'); }}>
-          <DialogTitle>Sélectionnez la date de livraison à réceptionner</DialogTitle>
-          <DialogContent>
-            {receptionDates.length === 0 && <Typography>Aucune livraison à réceptionner.</Typography>}
-            {receptionDates.map(({ date, periods }) => (
-              <Button key={date} onClick={() => {
-                setSelectedReceptionDate(date);
-                setReceptionModalOpen(false);
-                setPage('reception');
-              }} style={{ margin: 8 }} variant="outlined">
-                {dayjs(date).format('DD/MM/YYYY')}<br />
-                <span style={{ fontSize: '0.8em', color: '#888' }}>
-                  {periods.map(p => p.nom).join(', ')}
-                </span>
-              </Button>
-            ))}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => { setReceptionModalOpen(false); setPage('catalogue'); }}>Annuler</Button>
-          </DialogActions>
-        </Dialog>
+      
       </Container>
       <AppBar position="fixed" style={{ top: 'auto', bottom: 0 }}>
         <BottomNavigation
