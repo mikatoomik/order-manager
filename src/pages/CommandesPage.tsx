@@ -234,7 +234,7 @@ export default function CommandesPage({ onReceptionRequest }: CommandesPageProps
                   backgroundColor:
                     po.period.status === 'open'
                       ? '#e8f5e9'
-                      : po.period.status === 'ordered'
+                      : po.period.status === 'ordered' || po.period.status === 'waiting'
                         ? '#e3f2fd' // bleu clair
                         : '#eeeeee'
                 }}
@@ -242,7 +242,7 @@ export default function CommandesPage({ onReceptionRequest }: CommandesPageProps
                 <Typography variant="h5" sx={{ mb: 2 }} data-testid="period-total">
                   {po.period.nom} - {po.total.toFixed(2)} € - {getStatusLabel(po.period.status)}
                 </Typography>
-                {po.period.status === 'ordered' && (
+                {(po.period.status === 'ordered' || po.period.status === 'waiting') && (
                   <Button variant="contained" color="primary" sx={{ mb: 2 }} onClick={() => onReceptionRequest ? onReceptionRequest(po.period.id) : navigate(`/reception/${po.period.id}`)}>
                     Réceptionner la commande
                   </Button>
@@ -326,6 +326,8 @@ function getStatusLabel(status: string): string {
       return 'Archivée';
     case 'closed':
       return 'Fermée';
+    case 'waiting':
+      return 'En attente';
     default:
       return status;
   }

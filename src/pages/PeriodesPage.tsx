@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Select, MenuItem, Typography, Box, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField, CircularProgress } from '@mui/material';
+import { Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, Box, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField, CircularProgress } from '@mui/material';
 import type { User } from '@supabase/supabase-js';
 import { periodStatusToLabel, type Period } from '../utils/periodUtils';
 import type { UserCircle } from '../types';
@@ -8,8 +8,6 @@ import type { UserCircle } from '../types';
 interface PeriodesPageProps {
   user: User;
 }
-
-const ETATS = ['open', 'ordered', 'closed', 'archived'];
 
 export default function PeriodesPage({ user }: PeriodesPageProps) {
   const [periodes, setPeriodes] = useState<Period[]>([]);
@@ -71,16 +69,6 @@ export default function PeriodesPage({ user }: PeriodesPageProps) {
       setNewDateLimite('');
       fetchPeriodes();
     }
-  }
-
-  async function changerEtat(id: string, status: string) {
-    setError(null); setSuccess(null);
-    const { error } = await supabase
-      .from('order_periods')
-      .update({ status })
-      .eq('id', id);
-    if (error) setError('Erreur lors du changement d\'état');
-    else { setSuccess('État modifié'); fetchPeriodes(); }
   }
 
   // Fonction pour ouvrir la modale et charger les articles agrégés

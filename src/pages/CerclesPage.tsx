@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
-import { Box, Tabs, Tab, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import { Box, Tabs, Tab, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, TextField } from '@mui/material';
 import type { User } from '@supabase/supabase-js';
 import { periodStatusToLabel } from '../utils/periodUtils';
 
@@ -187,6 +187,41 @@ export default function CerclesPage({ user }: CerclesPageProps) {
     fetchCirclesAndRequests();
   };
 
+    const updateOrDeleteLine = async (lineId: string, newQty: number) => {
+      if (newQty === 0) {
+        const ok = window.confirm(
+          "Mettre la quantité à 0 supprimera cette ligne. Continuer ?"
+        );
+        if (!ok) return;
+        await supabase.from("request_lines").delete().eq("id", lineId);
+      } else {
+        await supabase.from("request_lines").update({ qty: newQty }).eq("id", lineId);
+      }
+      fetchCirclesAndRequests();               // rafraîchir une fois
+    };
+    const patchLineInState = (
+      circleId: string,
+      requestId: string,
+      lineId: string,
+      newQty: number | null      //  null  ⇒ on retire la ligne
+    ) =>
+      setRequestsByCircle(prev => {
+        const clone = { ...prev };
+        clone[circleId] = clone[circleId].flatMap(r => {
+          if (r.id !== requestId) return r;
+
+          const newLines = newQty === null
+            ? r.lines.filter(l => l.id !== lineId)
+            : r.lines.map(l => (l.id === lineId ? { ...l, qty: newQty } : l));
+
+          // si plus aucune ligne ⇒ on retire la request
+          if (newLines.length === 0) return [];
+          return { ...r, lines: newLines };
+        });
+        return clone;
+      });
+
+
   return (
     <Box sx={{ mt: 4 }}>
       <Typography variant="h4" gutterBottom>Cercles</Typography>
@@ -223,8 +258,8 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                   <>
                     {/* 1. Total général du cercle */}
                     {(requestsByCircle[circle.id] || []).length > 0 && (() => {
-                      type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
-                      const totals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0 };
+                      type Statut = 'draft' | 'submitted' | 'validated' | 'closed' | 'waiting' | 'canceled';
+                      const totals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0, canceled: 0, waiting: 0 };
                       (requestsByCircle[circle.id] || []).forEach(req => {
                         const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
                         if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
@@ -234,10 +269,10 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                       return (
                         <Typography variant="subtitle1" sx={{ mt: 1, fontWeight: 600, mb: 3 }}>
                           Total {circle.nom} :
-                          <span style={{ color: '#888', marginLeft: 8 }}>brouillon {totals.draft.toFixed(2)} €</span>
-                          <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {totals.submitted.toFixed(2)} €</span>
-                          <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {totals.validated.toFixed(2)} €</span>
-                          <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {totals.closed.toFixed(2)} €</span>
+                          <span style={{ color: '#1976d2', marginLeft: 8 }}>commandées {totals.validated.toFixed(2)} €</span>
+                          <span style={{ color: '#43a047', marginLeft: 8 }}>reçues {totals.closed.toFixed(2)} €</span>
+                          <span style={{ color: '#ff9800', marginLeft: 8 }}>en attente {totals.waiting.toFixed(2)} €</span>
+                          <span style={{ color: '#888', marginLeft: 8 }}>annulées {totals.canceled.toFixed(2)} €</span>
                         </Typography>
                       );
                     })()}
@@ -353,9 +388,30 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                                                 <TableCell>{line.articles?.fournisseur || '-'}</TableCell>
                                                 <TableCell>{line.articles?.prix_unitaire?.toFixed(2) || '-'}</TableCell>
                                                 <TableCell>
-                                                  {line.qty}
-                                                  {typeof line.qty_validated === 'number' && line.qty_validated !== line.qty && (
-                                                    <span style={{ color: '#1976d2', marginLeft: 4 }} title="Quantité validée par FinAdmin">→ {line.qty_validated}</span>
+                                                  {req.status === "draft" ? (
+                                                    <TextField
+                                                      type="number"
+                                                      size="small"
+                                                      defaultValue={line.qty}          // ← champ non « contrôlé »
+                                                      inputProps={{ min: 0, style: { width: 70 } }}
+                                                      onChange={e => {
+                                                        const v = Math.max(0, Number(e.target.value));
+                                                        patchLineInState(circle.id, req.id, line.id, v);   // ← met à jour l’état local
+                                                      }}
+                                                      onBlur={(e) => {
+                                                        const v = Math.max(0, Number(e.target.value));
+                                                        if (v !== line.qty) {
+                                                          updateOrDeleteLine(line.id, v);   // on ne rafraîchit qu’après coup
+                                                        }
+                                                      }}
+                                                    />
+                                                  ) : (
+                                                    <>
+                                                      {line.qty}
+                                                      {typeof line.qty_validated === "number" && line.qty_validated !== line.qty && (
+                                                        <span style={{ color: "#1976d2", marginLeft: 6 }}>→ {line.qty_validated}</span>
+                                                      )}
+                                                    </>
                                                   )}
                                                 </TableCell>
                                                 <TableCell>{line.articles?.prix_unitaire ? (line.articles.prix_unitaire * (typeof line.qty_validated === 'number' ? line.qty_validated : line.qty)).toFixed(2) : '-'}</TableCell>
@@ -382,11 +438,11 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                           </TableContainer>
                           {/* Sous-total de la période */}
                           {p.requests.length > 0 && (() => {
-                            type Statut = 'draft' | 'submitted' | 'validated' | 'closed';
-                            const periodTotals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0 };
+                            type Statut = 'draft' | 'submitted' | 'validated' | 'closed' | 'waiting' | 'canceled';
+                            const periodTotals: Record<Statut, number> = { draft: 0, submitted: 0, validated: 0, closed: 0, canceled: 0, waiting: 0 };
                             p.requests.forEach(req => {
                               const total = req.lines.reduce((sum, l) => sum + (l.articles?.prix_unitaire || 0) * (typeof l.qty_validated === 'number' ? l.qty_validated : l.qty), 0);
-                              if (["draft", "submitted", "validated", "closed"].includes(req.status)) {
+                              if (["draft", "submitted", "validated", "closed", "cancelled", "waiting"].includes(req.status)) {
                                 periodTotals[req.status as Statut] += total;
                               }
                             });
@@ -395,8 +451,10 @@ export default function CerclesPage({ user }: CerclesPageProps) {
                                 Sous-total :
                                 <span style={{ color: '#888', marginLeft: 8 }}>brouillon {periodTotals.draft.toFixed(2)} €</span>
                                 <span style={{ color: '#43a047', marginLeft: 8 }}>envoyé {periodTotals.submitted.toFixed(2)} €</span>
-                                <span style={{ color: '#1976d2', marginLeft: 8 }}>commandée {periodTotals.validated.toFixed(2)} €</span>
-                                <span style={{ color: '#ff9800', marginLeft: 8 }}>annulée {periodTotals.closed.toFixed(2)} €</span>
+                                <span style={{ color: '#1976d2', marginLeft: 8 }}>commandées {periodTotals.validated.toFixed(2)} €</span>
+                                <span style={{ color: '#43a047', marginLeft: 8 }}>reçues {periodTotals.closed.toFixed(2)} €</span>
+                                <span style={{ color: '#ff9800', marginLeft: 8 }}>en attente {periodTotals.waiting.toFixed(2)} €</span>
+                                <span style={{ color: '#888', marginLeft: 8 }}>annulées {periodTotals.canceled.toFixed(2)} €</span>
                               </Typography>
                             );
                           })()}

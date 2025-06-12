@@ -1,8 +1,24 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import type { User } from '@supabase/supabase-js';
-import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Select, MenuItem, TextField, Button, Alert, CircularProgress, Divider } from '@mui/material';
+import {
+  Box,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Select,
+  MenuItem,
+  TextField,
+  Button,
+  Alert,
+  CircularProgress,
+} from '@mui/material';
 import dayjs from 'dayjs';
 
 interface ArticleCommande {
@@ -11,311 +27,228 @@ interface ArticleCommande {
   ref: string;
   quantite: number;
   delivery_date?: string;
-  period_id?: string;
-  period_nom?: string;
+  period_id: string;
+  period_nom: string;
 }
 
+type ReceptionStatus = 'totaly' | 'partialy' | 'none';
+
 export default function ReceptionCommandePage({ user }: { user: User }) {
-  const params = useParams();
   const navigate = useNavigate();
+
   const [loading, setLoading] = useState(true);
   const [articles, setArticles] = useState<ArticleCommande[]>([]);
-  const [infos, setInfos] = useState<Record<string, { status: 'total' | 'partial' | 'none', qty: number, comment: string }>>({});
+  const [infos, setInfos] = useState<Record<string, { status: ReceptionStatus; qty: number; comment: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [periods, setPeriods] = useState<Record<string, { id: string, nom: string }>>({});
+  const [periods, setPeriods] = useState<Record<string, { id: string; nom: string }>>({});
 
+  /* ------------------------------------------------------------------
+   * CHARGEMENT DES ARTICLES A RECEPTIONNER
+   * ----------------------------------------------------------------*/
   useEffect(() => {
     async function fetchArticles() {
       setLoading(true);
       setError(null);
-      type RequestLine = { 
-        id: string; 
-        qty_validated?: number; 
-        delivery_date?: string; 
-        article_id: string;
-        articles: { id: string; libelle: string; ref: string } | { id: string; libelle: string; ref: string }[] 
-      };
-      type Request = { 
-        id: string; 
-        period_id: string;
-        request_lines: RequestLine[] 
-      };
-      
-      // Récupérer toutes les périodes ordered
-      const { data: periodsData } = await supabase
+
+      const { data: periodsData, error: periodsErr } = await supabase
         .from('order_periods')
         .select('id, nom')
-        .eq('status', 'ordered');
-      
-      const periodIds = (periodsData as { id: string, nom: string }[] | null)?.map(p => p.id) || [];
-      const periodsMap = Object.fromEntries(
-        (periodsData as { id: string, nom: string }[] | null || []).map(p => [p.id, { id: p.id, nom: p.nom }])
-      );
-      setPeriods(periodsMap);
-      
-      if (periodIds.length === 0) {
+        .in('status', ['ordered', 'waiting'])
+      if (periodsErr) {
+        setError('Impossible de charger les périodes');
         setLoading(false);
         return;
       }
 
-      // Récupérer toutes les commandes pour ces périodes
-      const { data, error } = await supabase
+      const periodIds = periodsData.map(p => p.id);
+      const periodsMap = Object.fromEntries(periodsData.map(p => [p.id, p]));
+      setPeriods(periodsMap);
+      if (!periodIds.length) {
+        setLoading(false);
+        return;
+      }
+
+      const { data: reqs, error: reqErr } = await supabase
         .from('circle_requests')
-        .select('id, period_id, request_lines(id, qty_validated, delivery_date, article_id, articles(id, libelle, ref))')
+        .select(`id, period_id, request_lines(id, qty_validated, qty_received, delivery_date, article_id, articles(id, libelle, ref))`)
         .in('period_id', periodIds)
         .neq('status', 'draft');
-
-      if (error) {
+      if (reqErr) {
         setError('Erreur lors du chargement des commandes');
         setLoading(false);
         return;
       }
 
-      const requests = data as Request[] || [];
       const articlesMap: Record<string, ArticleCommande> = {};
-      
-      // Regrouper les articles par ID et date de livraison
-      (requests || []).forEach(req => {
-        (req.request_lines || []).forEach((line: RequestLine) => {
+      for (const req of reqs) {
+        for (const line of req.request_lines) {
           const art = Array.isArray(line.articles) ? line.articles[0] : line.articles;
-          if (!art) return;
-          
-          // Créer une clé unique pour chaque combinaison article/date de livraison
-          const key = `${art.id}_${line.delivery_date || 'no_date'}`;
-          
+          if (!art) continue;
+
+          // 👉 quantité RESTANTE
+          const remaining = (line.qty_validated ?? 0) - (line.qty_received ?? 0);
+          if (remaining <= 0) continue;         // déjà tout reçu
+
+          const key = `${art.id}_${line.delivery_date ?? 'no_date'}`;
           if (!articlesMap[key]) {
-            articlesMap[key] = { 
-              ...art, 
-              quantite: 0, 
-              delivery_date: line.delivery_date,
+            articlesMap[key] = {
+              id: art.id,
+              libelle: art.libelle,
+              ref: art.ref,
+              quantite: 0,
+              delivery_date: line.delivery_date ?? undefined,
               period_id: req.period_id,
-              period_nom: periodsMap[req.period_id]?.nom
+              period_nom: periodsMap[req.period_id].nom,
             };
           }
-          articlesMap[key].quantite += line.qty_validated ?? 0;
-        });
-      });
-      
-      // Convertir en tableau et trier par date de livraison
-      let arts = Object.values(articlesMap);
-      arts.sort((a, b) => {
-        // Articles sans date en dernier
-        if (!a.delivery_date && !b.delivery_date) return 0;
+          articlesMap[key].quantite += remaining;   // ⚠️ on additionne « remaining »
+        }
+      }
+
+      const arts = Object.values(articlesMap).sort((a, b) => {
         if (!a.delivery_date) return 1;
         if (!b.delivery_date) return -1;
-        // Sinon par date croissante
-        return a.delivery_date.localeCompare(b.delivery_date);
+        return a.delivery_date!.localeCompare(b.delivery_date!);
       });
-      
       setArticles(arts);
-      setInfos(Object.fromEntries(arts.map(a => [
-        `${a.id}_${a.delivery_date || 'no_date'}`, 
-        { status: 'total', qty: a.quantite, comment: '' }
-      ])));
+      setInfos(Object.fromEntries(arts.map(a => {
+        const key = `${a.id}_${a.delivery_date ?? 'no_date'}`;
+        return [key, { status: 'totaly', qty: a.quantite, comment: '' }];
+      })));
       setLoading(false);
     }
+
     fetchArticles();
   }, []);
 
-  async function oldvaliderReception() {
-    setLoading(true);
-    setError(null); 
-    setSuccess(null);
-    try {
-      // Pour chaque article, mettre à jour les request_lines correspondantes
-      for (const art of articles) {
-        const key = `${art.id}_${art.delivery_date || 'no_date'}`;
-        const info = infos[key];
-        if (!info) continue;
-        
-        // Récupérer toutes les request_lines pour cet article et cette date
-        const { data: lines } = await supabase
-          .from('request_lines')
-          .select('id')
-          .eq('article_id', art.id)
-          .eq(art.delivery_date ? 'delivery_date' : 'id', art.delivery_date || 'no_date')
-          .in('circle_requests.period_id', [art.period_id])
-          .neq('circle_requests.status', 'draft');
-        
-        // Mettre à jour chaque ligne
-        for (const line of lines || []) {
-          await supabase
-            .from('request_lines')
-            .update({
-              reception_status: info.status,
-              qty_received: info.status === 'total' ? info.qty : (info.status === 'partial' ? info.qty : 0),
-              reception_comment: info.comment,
-              reception_date: new Date().toISOString(),
-              reception_user: user.email
-            })
-            .eq('id', line.id);
-        }
-      }
-      
-      // Vérifier si toutes les périodes peuvent être clôturées
-      const periodStatus: Record<string, boolean> = {};
-      for (const art of articles) {
-        if (!art.period_id) continue;
-        const key = `${art.id}_${art.delivery_date || 'no_date'}`;
-        const info = infos[key];
-        if (info?.status !== 'total') {
-          periodStatus[art.period_id] = false;
-        } else if (periodStatus[art.period_id] !== false) {
-          periodStatus[art.period_id] = true;
-        }
-      }
-      
-      // Mettre à jour le statut des périodes
-      for (const [periodId, allTotal] of Object.entries(periodStatus)) {
-        await supabase
-          .from('order_periods')
-          .update({ status: allTotal ? 'closed' : 'ordered' })
-          .eq('id', periodId);
-      }
-      
-      setSuccess('Réception enregistrée.');
-      setTimeout(() => navigate('/commandes'), 1500);
-    } catch (err) {
-      console.error(err);
-      setError('Erreur lors de la validation de la réception');
-    }
-    setLoading(false);
-  }
+  /* ------------------------------------------------------------------
+   * VALIDATION RECEPTION
+   * ----------------------------------------------------------------*/
   async function validerReception() {
     setLoading(true);
-    setError(null); 
+    setError(null);
     setSuccess(null);
+
     try {
-      // Pour chaque article, mettre à jour les request_lines correspondantes
+      const updatedRequestIds = new Set<string>();
+
       for (const art of articles) {
-        const key = `${art.id}_${art.delivery_date || 'no_date'}`;
+        const key = `${art.id}_${art.delivery_date ?? 'no_date'}`;
         const info = infos[key];
         if (!info) continue;
-        
-        // Récupérer toutes les request_lines pour cet article et cette date
-        const { data: lines } = await supabase
+
+        let query = supabase
           .from('request_lines')
-          .select('id, request_id')
+          .select('id, request_id, qty_validated, circle_requests!inner(period_id)')
           .eq('article_id', art.id)
-          .eq(art.delivery_date ? 'delivery_date' : 'id', art.delivery_date || 'no_date')
-          .in('circle_requests.period_id', [art.period_id])
+          .eq('circle_requests.period_id', art.period_id)
           .neq('circle_requests.status', 'draft');
-        
-        // Mettre à jour chaque ligne
-        for (const line of lines || []) {
+        if (art.delivery_date) query = query.eq('delivery_date', art.delivery_date); else query = query.is('delivery_date', null);
+
+        const { data: lines, error: fetchErr } = await query;
+        if (fetchErr) throw fetchErr;
+
+       // --- Répartition proportionnelle de la quantité reçue -----------------
+        const totalValidated = (lines ?? []).reduce(
+          (acc, l) => acc + (l.qty_validated ?? 0),
+          0
+        );
+        if (totalValidated === 0) continue;
+
+        // 1) part « entière » arrondie vers le bas
+        const provisional: { id: string; request_id: string; qty: number; remainder: number }[] =
+          (lines ?? []).map(l => {
+            const exactShare = (info.qty * (l.qty_validated ?? 0)) / totalValidated;
+            return {
+              id: l.id,
+              request_id: l.request_id,
+              qty: Math.floor(exactShare),
+              remainder: exactShare - Math.floor(exactShare),
+            };
+          });
+
+        // 2) redistribuer le reste (somme exacte = info.qty)
+        let rest = info.qty - provisional.reduce((a, p) => a + p.qty, 0);
+        provisional.sort((a, b) => b.remainder - a.remainder); // plus grands décimaux d’abord
+        for (const p of provisional) {
+          if (rest === 0) break;
+          p.qty += 1;
+          rest -= 1;
+        }
+
+        // 3) mise à jour en base
+        for (const p of provisional) {
           await supabase
             .from('request_lines')
             .update({
               reception_status: info.status,
-              qty_received: info.status === 'total' ? info.qty : (info.status === 'partial' ? info.qty : 0),
+              qty_received: p.qty,
               reception_comment: info.comment,
               reception_date: new Date().toISOString(),
-              reception_user: user.email
+              reception_user: user.id,
             })
-            .eq('id', line.id);
+            .eq('id', p.id);
+
+          updatedRequestIds.add(p.request_id);
         }
+        // ----------------------------------------------------------------------
+
       }
-      
-      // Récupérer toutes les circle_requests concernées par cette réception
-      const requestIds = new Set();
-      for (const art of articles) {
-        const { data: lines } = await supabase
+
+      // Mise à jour des circle_requests et periods
+      const periodSummary: Record<string, { closed: number; waiting: number; total: number }> = {};
+
+      for (const reqId of updatedRequestIds) {
+        const { data: reqLines } = await supabase
           .from('request_lines')
-          .select('request_id, circle_requests(period_id)')
-          .eq('article_id', art.id)
-          .eq(art.delivery_date ? 'delivery_date' : 'id', art.delivery_date || 'no_date')
-          .in('circle_requests.period_id', [art.period_id])
-          .neq('circle_requests.status', 'draft');
-        
-        (lines || []).forEach(line => {
-          if (line.request_id) requestIds.add(line.request_id);
-        });
+          .select('reception_status, circle_requests!inner(period_id)')
+          .eq('request_id', reqId);
+
+        const statuses = reqLines!.map(r => r.reception_status);
+        const periodId = reqLines![0].circle_requests.period_id;
+        const allTotal = statuses.every(s => s === 'totaly');
+        const allNone = statuses.every(s => s === 'none');
+        const hasPartial = statuses.some(s => s === 'partialy');
+
+        let newReqStatus: string;
+        if (allTotal) newReqStatus = 'closed';
+        else if (hasPartial) newReqStatus = 'waiting';
+        else if (allNone) newReqStatus = 'validated';
+        else newReqStatus = 'waiting';
+
+        await supabase.from('circle_requests').update({ status: newReqStatus }).eq('id', reqId);
+
+        if (!periodSummary[periodId]) periodSummary[periodId] = { closed: 0, waiting: 0, total: 0 };
+        periodSummary[periodId].total += 1;
+        if (newReqStatus === 'closed') periodSummary[periodId].closed += 1;
+        if (newReqStatus === 'waiting') periodSummary[periodId].waiting += 1;
       }
-      
-      // Pour chaque circle_request, déterminer son nouveau statut
-      const periodRequestStatus: Record<string, { total: number, none: number, partial: number, mixed: number }> = {}; // Pour suivre les statuts par période
-      
-      for (const requestId of requestIds) {
-        // Récupérer toutes les lignes de cette request
-        const { data: requestLines } = await supabase
-          .from('request_lines')
-          .select('reception_status, circle_requests(period_id)')
-          .eq('request_id', requestId);
-        
-        if (!requestLines || requestLines.length === 0) continue;
-        
-        // Déterminer le statut de la request
-        const allTotal = requestLines.every(line => line.reception_status === 'total');
-        const allNone = requestLines.every(line => line.reception_status === 'none' || !line.reception_status);
-        const hasPartial = requestLines.some(line => line.reception_status === 'partial');
-        const hasMixed = !allTotal && !allNone;
-        
-        let newStatus = 'validated'; // Par défaut
-        if (allTotal) {
-          newStatus = 'closed';
-        } else if (hasMixed || hasPartial) {
-          newStatus = 'waiting';
-        }
-        
-        // Mettre à jour le statut de la request
-        await supabase
-          .from('circle_requests')
-          .update({ status: newStatus })
-          .eq('id', requestId);
-        
-        // Suivre les statuts par période pour la mise à jour des périodes
-        const periodId = requestLines[0]?.circle_requests?.period_id;
-        if (periodId) {
-          if (!periodRequestStatus[periodId]) {
-            periodRequestStatus[periodId] = { total: 0, none: 0, partial: 0, mixed: 0 };
-          }
-          
-          if (allTotal) periodRequestStatus[periodId].total++;
-          else if (allNone) periodRequestStatus[periodId].none++;
-          else if (hasPartial) periodRequestStatus[periodId].partial++;
-          else if (hasMixed) periodRequestStatus[periodId].mixed++;
-        }
+
+      for (const [periodId, stats] of Object.entries(periodSummary)) {
+        const newPeriodStatus = stats.closed === stats.total ? 'closed' : stats.waiting > 0 ? 'waiting' : 'ordered';
+        await supabase.from('order_periods').update({ status: newPeriodStatus }).eq('id', periodId);
       }
-      
-      // Mettre à jour le statut des périodes
-      for (const [periodId, status] of Object.entries(periodRequestStatus)) {
-        let newPeriodStatus = 'ordered'; // Par défaut
-        
-        // Si toutes les requests sont closed
-        if (status.total > 0 && status.none === 0 && status.partial === 0 && status.mixed === 0) {
-          newPeriodStatus = 'closed';
-        }
-        // Si au moins une request est en waiting ou partial
-        else if (status.partial > 0 || status.mixed > 0) {
-          newPeriodStatus = 'waiting';
-        }
-        
-        await supabase
-          .from('order_periods')
-          .update({ status: newPeriodStatus })
-          .eq('id', periodId);
-      }
-      
+
       setSuccess('Réception enregistrée.');
       setTimeout(() => navigate('/commandes'), 1500);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Erreur lors de la validation de la réception');
+      setError(err.message ?? 'Erreur lors de la validation');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
-  // Grouper les articles par date de livraison
-  const articlesByDate: Record<string, ArticleCommande[]> = {};
-  articles.forEach(art => {
-    const dateKey = art.delivery_date || 'Sans date';
-    if (!articlesByDate[dateKey]) {
-      articlesByDate[dateKey] = [];
-    }
-    articlesByDate[dateKey].push(art);
-  });
 
-  // Trier les dates
+  /* ------------------------------------------------------------------
+   * PREPARATION AFFICHAGE
+   * ----------------------------------------------------------------*/
+  const articlesByDate: Record<string, ArticleCommande[]> = {};
+  articles.forEach(a => {
+    const key = a.delivery_date ?? 'Sans date';
+    if (!articlesByDate[key]) articlesByDate[key] = [];
+    articlesByDate[key].push(a);
+  });
   const sortedDates = Object.keys(articlesByDate).sort((a, b) => {
     if (a === 'Sans date') return 1;
     if (b === 'Sans date') return -1;
@@ -324,38 +257,53 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
 
   return (
     <Box sx={{ mt: 4 }}>
-      <Typography variant="h5" gutterBottom>Réception des commandes</Typography>
-      {error && <Alert severity="error">{error}</Alert>}
-      {success && <Alert severity="success">{success}</Alert>}
+      <Typography variant="h5" gutterBottom>
+        Réception des commandes
+      </Typography>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {success}
+        </Alert>
+      )}
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <CircularProgress />
+        </Box>
       ) : articles.length === 0 ? (
         <Typography>Aucun article à réceptionner.</Typography>
       ) : (
         <>
           {sortedDates.map(dateKey => (
             <Box key={dateKey} sx={{ mb: 4 }}>
-              <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>
-                {dateKey === 'Sans date' ? 'Articles sans date de livraison prévue' : `Livraison prévue le ${dayjs(dateKey).format('DD/MM/YYYY')}`}
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                {dateKey === 'Sans date'
+                  ? 'Articles sans date de livraison prévue'
+                  : `Livraison prévue le ${dayjs(dateKey).format('DD/MM/YYYY')}`}                
               </Typography>
               <TableContainer component={Paper}>
-                <Table>
+                <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Référence</TableCell>
+                      <TableCell>Réf.</TableCell>
                       <TableCell>Libellé</TableCell>
                       <TableCell>Période</TableCell>
-                      <TableCell>Quantité commandée</TableCell>
+                      <TableCell>Qté commandée</TableCell>
                       <TableCell>Statut réception</TableCell>
-                      <TableCell>Quantité reçue</TableCell>
+                      <TableCell>Qté reçue</TableCell>
                       <TableCell>Commentaire</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {articlesByDate[dateKey].map(art => {
-                      const key = `${art.id}_${art.delivery_date || 'no_date'}`;
+                      const rowKey = `${art.id}_${art.delivery_date ?? 'no_date'}`;
+                      const info = infos[rowKey];
                       return (
-                        <TableRow key={key}>
+                        <TableRow key={rowKey}>
                           <TableCell>{art.ref}</TableCell>
                           <TableCell>{art.libelle}</TableCell>
                           <TableCell>{art.period_nom}</TableCell>
@@ -363,46 +311,65 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
                           <TableCell>
                             <Select
                               size="small"
-                              value={infos[key]?.status || 'total'}
-                              onChange={e => setInfos(info => ({
-                                ...info,
-                                [key]: {
-                                  ...info[key],
-                                  status: e.target.value as 'total' | 'partial' | 'none',
-                                  qty: e.target.value === 'total' ? art.quantite : (e.target.value === 'none' ? 0 : info[key]?.qty || 0)
-                                }
-                              }))}
+                              value={info.status}
+                              onChange={e =>
+                                setInfos(prev => ({
+                                  ...prev,
+                                  [rowKey]: {
+                                    ...prev[rowKey],
+                                    status: e.target.value as ReceptionStatus,
+                                    qty:
+                                      e.target.value === 'totaly'
+                                        ? art.quantite
+                                        : e.target.value === 'none'
+                                        ? 0
+                                        : prev[rowKey].qty,
+                                  },
+                                }))
+                              }
                             >
-                              <MenuItem value="total">Reçu en totalité</MenuItem>
-                              <MenuItem value="partial">Reçu partiellement</MenuItem>
+                              <MenuItem value="totaly">Reçu en totalité</MenuItem>
+                              <MenuItem value="partialy">Reçu partiellement</MenuItem>
                               <MenuItem value="none">Non reçu</MenuItem>
                             </Select>
                           </TableCell>
                           <TableCell>
-                            {infos[key]?.status === 'partial' ? (
+                            {info.status === 'partialy' ? (
                               <TextField
                                 type="number"
                                 size="small"
-                                value={infos[key]?.qty || 0}
-                                onChange={e => setInfos(info => ({
-                                  ...info,
-                                  [key]: { ...info[key], qty: Math.max(0, Math.min(Number(e.target.value), art.quantite)) }
-                                }))}
+                                value={info.qty}
+                                onChange={e =>
+                                  setInfos(prev => ({
+                                    ...prev,
+                                    [rowKey]: {
+                                      ...prev[rowKey],
+                                      qty: Math.max(
+                                        0,
+                                        Math.min(Number(e.target.value), art.quantite)
+                                      ),
+                                    },
+                                  }))
+                                }
                                 inputProps={{ min: 0, max: art.quantite, style: { width: 60 } }}
                               />
+                            ) : info.status === 'totaly' ? (
+                              art.quantite
                             ) : (
-                              infos[key]?.status === 'total' ? art.quantite : 0
+                              0
                             )}
                           </TableCell>
                           <TableCell>
                             <TextField
                               size="small"
-                              value={infos[key]?.comment || ''}
-                              onChange={e => setInfos(info => ({
-                                ...info,
-                                [key]: { ...info[key], comment: e.target.value }
-                              }))}
-                              placeholder="Commentaire (facultatif)"
+                              value={info.comment}
+                              onChange={e =>
+                                setInfos(prev => ({
+                                  ...prev,
+                                  [rowKey]: { ...prev[rowKey], comment: e.target.value },
+                                }))
+                              }
+                              placeholder="(facultatif)"
                             />
                           </TableCell>
                         </TableRow>
@@ -413,8 +380,14 @@ export default function ReceptionCommandePage({ user }: { user: User }) {
               </TableContainer>
             </Box>
           ))}
-          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="contained" color="primary" onClick={validerReception} disabled={loading}>
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={validerReception}
+              disabled={loading}
+            >
               Valider la réception
             </Button>
           </Box>
